@@ -7,10 +7,16 @@ Infraestructura como código (IaC) del sistema **SWARD** usando **AWS CDK en Pyt
 | Stack | Recursos |
 |---|---|
 | `NetworkingStack` | VPC, subnets, security groups |
-| `DatabaseStack` | 6× RDS PostgreSQL + ElastiCache Redis |
-| `ServicesStack` | EC2 / ECS + Amazon API Gateway |
-| `LambdasStack` | 4× Lambda + EventBridge rules + SQS |
+| `EcrStack` | 6× repositorio ECR `sward/<servicio>` + lifecycle policy |
+| `SecretsStack` | `SECRET_KEY` (JWT), service keys, token Moodle (Secrets Manager) |
 | `StorageStack` | S3 bucket de recursos educativos + modelos SAKT |
+| `DatabaseStack` | 6× RDS PostgreSQL (credenciales en Secrets Manager) |
+| `CacheStack` | ElastiCache Redis para ms-xai |
+| `ServicesStack` | ECS Cluster + 6× Fargate Service + ALB (path routing) + Cloud Map |
+| `LambdasStack` | EventBus + 4× Lambda + EventBridge rules + SQS con DLQ |
+
+El despliegue se documenta en [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+(orden de stacks, bootstrap, build/push de imágenes a ECR antes de ECS).
 
 ## Requisitos
 
