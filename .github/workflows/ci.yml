@@ -32,6 +32,9 @@ jobs:
       - name: Lint con ruff
         run: ruff check stacks/ app.py
 
+      - name: Verificar formato con ruff
+        run: ruff format --check stacks/ app.py
+
       - name: CDK Synth (validar stacks)
         run: cdk synth
         env:
