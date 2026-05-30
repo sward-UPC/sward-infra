@@ -2,8 +2,47 @@
 
 Inventario actualizado del sistema. Actualizar al final de cada sprint.
 
-**Última actualización:** 2026-05-29  
+**Última actualización:** 2026-05-30  
 **Sprint actual:** 0 — Fundaciones
+
+---
+
+## Infraestructura (sward-infra · AWS CDK Python)
+
+8 stacks. Orden de dependencia:
+`networking → ecr · secrets · storage → database · cache → services → lambdas`.
+
+| Stack | ID CDK | Recursos |
+|---|---|---|
+| `NetworkingStack` | `SwardNetworking` | VPC (2 AZ), subnets pública/privada/aislada, NAT |
+| `EcrStack` | `SwardEcr` | 6× repo ECR `sward/<servicio>` + lifecycle (10 imgs) |
+| `SecretsStack` | `SwardSecrets` | JWT `SECRET_KEY`, 6× `SERVICE_KEY`, token Moodle |
+| `StorageStack` | `SwardStorage` | S3 recursos educativos + S3 modelos SAKT |
+| `DatabaseStack` | `SwardDatabase` | 6× RDS PostgreSQL 15 (t3.micro), credenciales en Secrets Manager |
+| `CacheStack` | `SwardCache` | ElastiCache Redis (cache.t3.micro) para ms-xai |
+| `ServicesStack` | `SwardServices` | ECS Cluster + 6× Fargate Service/TaskDef + ALB (path routing) + Cloud Map |
+| `LambdasStack` | `SwardLambdas` | EventBus + 4× Lambda + reglas EventBridge + SQS con DLQ |
+
+**Routing externo (ALB, HTTP:80 — TODO ACM/HTTPS):**
+
+| Path(s) | Servicio | Prioridad |
+|---|---|---|
+| `/auth*` `/users*` `/admin*` | usuarios | 10 |
+| `/lms*` | integracion-lms | 20 |
+| `/interactions*` `/students*` `/dashboard*` | trazabilidad | 30 |
+| `/courses*` `/resources*` | cursos-recursos | 40 |
+| `/recommendations*` | recomendacion | 50 |
+| `/xai*` | xai | 60 |
+
+Health check ALB: `GET /health` (HTTP 200). Comunicación service-to-service
+interna vía Cloud Map (DNS privado `<servicio>.sward.local:8000`).
+
+Inyección de config en ECS: `ENVIRONMENT=production`, `DATABASE_HOST/PORT/NAME`,
+`EVENTBRIDGE_BUS_NAME`, `*_SERVICE_URL` (env en claro); `DB_USERNAME`,
+`DB_PASSWORD`, `SECRET_KEY`, `SERVICE_KEY`, `MOODLE_TOKEN`, `REDIS_URL` (xai)
+desde Secrets Manager. La app compone `DATABASE_URL` con los componentes.
+
+Ver [`DEPLOYMENT.md`](DEPLOYMENT.md) para el procedimiento de despliegue.
 
 ---
 
