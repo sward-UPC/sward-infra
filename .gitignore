@@ -222,3 +222,7 @@ __marimo__/
 # Claude Code
 .claude/
 CLAUDE.md
+
+# AWS CDK
+cdk.out/
+.cdk.staging/
