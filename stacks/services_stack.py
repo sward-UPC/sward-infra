@@ -1,24 +1,308 @@
-from aws_cdk import Stack, aws_ec2 as ec2, aws_apigateway as apigw
+from aws_cdk import (
+    Stack,
+    Duration,
+    aws_ec2 as ec2,
+    aws_ecs as ecs,
+    aws_ecr as ecr,
+    aws_elasticloadbalancingv2 as elbv2,
+    aws_logs as logs,
+    aws_servicediscovery as servicediscovery,
+    aws_secretsmanager as secretsmanager,
+)
 from constructs import Construct
+
+# Definición declarativa de los 6 microservicios y su routing en el ALB.
+#   key             -> nombre lógico (coincide con ECR repo "sward/<key>" y
+#                      con la clave en DatabaseStack.instances)
+#   paths           -> patrones de path en el ALB que enrutan a este servicio
+#   priority        -> prioridad de la regla del listener (única)
+SERVICES = {
+    "usuarios": {
+        "paths": ["/auth*", "/users*", "/admin*"],
+        "priority": 10,
+    },
+    "integracion-lms": {
+        "paths": ["/lms*"],
+        "priority": 20,
+    },
+    "trazabilidad": {
+        "paths": ["/interactions*", "/students*", "/dashboard*"],
+        "priority": 30,
+    },
+    "cursos-recursos": {
+        "paths": ["/courses*", "/resources*"],
+        "priority": 40,
+    },
+    "recomendacion": {
+        "paths": ["/recommendations*"],
+        "priority": 50,
+    },
+    "xai": {
+        "paths": ["/xai*"],
+        "priority": 60,
+    },
+}
+
+CONTAINER_PORT = 8000
 
 
 class ServicesStack(Stack):
-    """
-    Skeleton para el API Gateway y los servicios de cómputo.
-    Los microservicios se desplegarán como ECS Fargate tasks en una iteración posterior.
+    """ECS Fargate + Application Load Balancer para los 6 microservicios SWARD.
+
+    Topología:
+      * Un ECS Cluster en la VPC con un namespace de Cloud Map (``sward.local``)
+        para *service discovery* interno (comunicación service-to-service por
+        DNS privado, p. ej. ``trazabilidad.sward.local:8000``).
+      * Una TaskDefinition + FargateService por microservicio (256 CPU / 512 MB).
+        Cada task toma su imagen del repositorio ECR ``sward/<servicio>``.
+      * Un ALB público con un listener y reglas de *path-based routing*.
+
+    Decisión de routing s2s: el tráfico **externo** (clientes) entra por el ALB
+    con path-based routing; la comunicación **interna** entre microservicios usa
+    Cloud Map (DNS privado), que es lo más simple y evita exponer servicios
+    internos o pagar saltos extra por el ALB.
+
+    Inyección de configuración (sin hardcodear secretos):
+      * ENVIRONMENT, DATABASE_HOST/PORT/NAME, EVENTBRIDGE_BUS_NAME, *_SERVICE_URL
+        van como variables de entorno en texto plano.
+      * DB_USERNAME, DB_PASSWORD, SECRET_KEY, SERVICE_KEY, MOODLE_TOKEN se
+        inyectan como ``secrets`` desde Secrets Manager (cifrados en tránsito).
+        La app compone ``DATABASE_URL`` a partir de los componentes.
     """
 
-    def __init__(self, scope: Construct, construct_id: str, vpc: ec2.Vpc, **kwargs) -> None:
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        vpc: ec2.Vpc,
+        db_instances: dict,
+        db_credentials: dict | None = None,
+        db_security_group: ec2.ISecurityGroup | None = None,
+        redis_security_group: ec2.ISecurityGroup | None = None,
+        redis_port: int = 6379,
+        jwt_secret: secretsmanager.ISecret | None = None,
+        service_keys: dict | None = None,
+        moodle_token: secretsmanager.ISecret | None = None,
+        redis_endpoint: str | None = None,
+        event_bus_name: str = "sward-event-bus",
+        **kwargs,
+    ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # API Gateway REST API — punto de entrada para todos los microservicios
-        self.api = apigw.RestApi(
+        service_keys = service_keys or {}
+
+        # --- Cluster + namespace de Cloud Map para service discovery interno ---
+        self.cluster = ecs.Cluster(
             self,
-            "SwardApiGateway",
-            rest_api_name="sward-api",
-            description="API Gateway del sistema SWARD",
-            default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=apigw.Cors.ALL_ORIGINS,
-                allow_methods=apigw.Cors.ALL_METHODS,
+            "SwardCluster",
+            vpc=vpc,
+            cluster_name="sward-cluster",
+            container_insights_v2=ecs.ContainerInsights.ENABLED,
+        )
+        self.namespace = self.cluster.add_default_cloud_map_namespace(
+            name="sward.local",
+        )
+
+        # --- Security group compartido por todas las tasks de ECS ---
+        self.service_security_group = ec2.SecurityGroup(
+            self,
+            "EcsServiceSecurityGroup",
+            vpc=vpc,
+            description="SG de las tasks Fargate de SWARD",
+            allow_all_outbound=True,
+        )
+        # Permitir tráfico entre microservicios (s2s vía Cloud Map).
+        self.service_security_group.add_ingress_rule(
+            peer=self.service_security_group,
+            connection=ec2.Port.tcp(CONTAINER_PORT),
+            description="Tráfico service-to-service entre tasks SWARD",
+        )
+
+        # Abrir ingress en los SG de RDS y Redis SOLO desde el SG de ECS.
+        # Las reglas se crean como recursos CfnSecurityGroupIngress *en este
+        # stack* (no con add_ingress_rule, que las adjuntaría al stack dueño del
+        # SG destino y crearía una dependencia circular Database/Cache <->
+        # Services). Así la dependencia fluye solo Services -> Database/Cache.
+        if db_security_group is not None:
+            ec2.CfnSecurityGroupIngress(
+                self,
+                "RdsIngressFromEcs",
+                group_id=db_security_group.security_group_id,
+                ip_protocol="tcp",
+                from_port=5432,
+                to_port=5432,
+                source_security_group_id=self.service_security_group.security_group_id,
+                description="Permitir PostgreSQL desde ECS",
+            )
+        if redis_security_group is not None:
+            ec2.CfnSecurityGroupIngress(
+                self,
+                "RedisIngressFromEcs",
+                group_id=redis_security_group.security_group_id,
+                ip_protocol="tcp",
+                from_port=redis_port,
+                to_port=redis_port,
+                source_security_group_id=self.service_security_group.security_group_id,
+                description="Permitir Redis desde ECS (ms-xai)",
+            )
+
+        # --- Application Load Balancer público ---
+        self.alb = elbv2.ApplicationLoadBalancer(
+            self,
+            "SwardAlb",
+            vpc=vpc,
+            internet_facing=True,
+            load_balancer_name="sward-alb",
+        )
+
+        # TODO(ACM): cuando exista un certificado ACM + dominio, cambiar a
+        # protocol=HTTPS, port=443, certificates=[cert] y redirigir 80 -> 443.
+        # Por ahora el listener es HTTP:80 para poder sintetizar/desplegar sin
+        # certificado.
+        self.listener = self.alb.add_listener(
+            "HttpListener",
+            port=80,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            open=True,
+            default_action=elbv2.ListenerAction.fixed_response(
+                404,
+                content_type="application/json",
+                message_body='{"error":"ruta no encontrada"}',
             ),
         )
+
+        # Log group compartido (un stream prefix por servicio).
+        log_group = logs.LogGroup(
+            self,
+            "SwardEcsLogs",
+            log_group_name="/ecs/sward",
+            retention=logs.RetentionDays.ONE_WEEK,
+        )
+
+        self.services: dict[str, ecs.FargateService] = {}
+
+        for name, cfg in SERVICES.items():
+            logical_id = name.replace("-", " ").title().replace(" ", "")
+
+            # Imagen desde el repositorio ECR correspondiente (tag "latest").
+            repo = ecr.Repository.from_repository_name(
+                self, f"Repo{logical_id}", repository_name=f"sward/{name}"
+            )
+
+            task_def = ecs.FargateTaskDefinition(
+                self,
+                f"Task{logical_id}",
+                cpu=256,
+                memory_limit_mib=512,
+                family=f"sward-{name}",
+            )
+
+            # ---- Variables de entorno (no sensibles) ----
+            environment: dict[str, str] = {
+                "ENVIRONMENT": "production",
+                "AWS_REGION": self.region,
+                "EVENTBRIDGE_BUS_NAME": event_bus_name,
+            }
+            # URLs internas de los demás microservicios vía Cloud Map.
+            for other in SERVICES:
+                env_key = f"{other.replace('-', '_').upper()}_SERVICE_URL"
+                environment[env_key] = (
+                    f"http://{other}.{self.namespace.namespace_name}:{CONTAINER_PORT}"
+                )
+
+            db = db_instances.get(name)
+            if db is not None:
+                environment["DATABASE_HOST"] = db.db_instance_endpoint_address
+                environment["DATABASE_PORT"] = db.db_instance_endpoint_port
+                environment["DATABASE_NAME"] = f"sward_{name.replace('-', '_')}"
+
+            # Redis solo para xai.
+            if name == "xai" and redis_endpoint is not None:
+                environment["REDIS_URL"] = f"redis://{redis_endpoint}:6379/0"
+
+            if name == "integracion-lms":
+                environment["MOODLE_MOCK"] = "false"
+
+            # ---- Secretos (Secrets Manager) ----
+            secret_env: dict[str, ecs.Secret] = {}
+            cred = (db_credentials or {}).get(name)
+            if cred is not None:
+                secret_env["DB_USERNAME"] = ecs.Secret.from_secrets_manager(
+                    cred, "username"
+                )
+                secret_env["DB_PASSWORD"] = ecs.Secret.from_secrets_manager(
+                    cred, "password"
+                )
+            if jwt_secret is not None:
+                secret_env["SECRET_KEY"] = ecs.Secret.from_secrets_manager(
+                    jwt_secret, "secret_key"
+                )
+            sk = service_keys.get(name)
+            if sk is not None:
+                secret_env["SERVICE_KEY"] = ecs.Secret.from_secrets_manager(
+                    sk, "service_key"
+                )
+            if name == "integracion-lms" and moodle_token is not None:
+                secret_env["MOODLE_TOKEN"] = ecs.Secret.from_secrets_manager(
+                    moodle_token, "moodle_token"
+                )
+
+            container = task_def.add_container(
+                f"Container{logical_id}",
+                container_name=name,
+                image=ecs.ContainerImage.from_ecr_repository(repo, "latest"),
+                environment=environment,
+                secrets=secret_env,
+                logging=ecs.LogDriver.aws_logs(stream_prefix=name, log_group=log_group),
+            )
+            container.add_port_mappings(
+                ecs.PortMapping(
+                    container_port=CONTAINER_PORT, protocol=ecs.Protocol.TCP
+                )
+            )
+
+            service = ecs.FargateService(
+                self,
+                f"Service{logical_id}",
+                cluster=self.cluster,
+                task_definition=task_def,
+                desired_count=1,
+                service_name=name,
+                min_healthy_percent=100,
+                # Rollback automático si las tasks no arrancan (despliegue rápido).
+                circuit_breaker=ecs.DeploymentCircuitBreaker(rollback=True),
+                security_groups=[self.service_security_group],
+                vpc_subnets=ec2.SubnetSelection(
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+                ),
+                # Service discovery interno (Cloud Map): <name>.sward.local
+                cloud_map_options=ecs.CloudMapOptions(
+                    name=name,
+                    dns_record_type=servicediscovery.DnsRecordType.A,
+                    dns_ttl=Duration.seconds(30),
+                ),
+            )
+            self.services[name] = service
+
+            # ---- Target group + regla de path-based routing en el ALB ----
+            target_group = elbv2.ApplicationTargetGroup(
+                self,
+                f"Tg{logical_id}",
+                vpc=vpc,
+                port=CONTAINER_PORT,
+                protocol=elbv2.ApplicationProtocol.HTTP,
+                target_type=elbv2.TargetType.IP,
+                targets=[service],
+                health_check=elbv2.HealthCheck(
+                    path="/health",
+                    healthy_http_codes="200",
+                    interval=Duration.seconds(30),
+                    timeout=Duration.seconds(5),
+                ),
+            )
+            self.listener.add_target_groups(
+                f"Rule{logical_id}",
+                priority=cfg["priority"],
+                conditions=[elbv2.ListenerCondition.path_patterns(cfg["paths"])],
+                target_groups=[target_group],
+            )
