@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import aws_cdk as cdk
+
 from stacks.networking_stack import NetworkingStack
+from stacks.ecr_stack import EcrStack
+from stacks.secrets_stack import SecretsStack
 from stacks.database_stack import DatabaseStack
+from stacks.cache_stack import CacheStack
 from stacks.storage_stack import StorageStack
 from stacks.services_stack import ServicesStack
 from stacks.lambdas_stack import LambdasStack
@@ -13,10 +17,52 @@ env = cdk.Environment(
     region=app.node.try_get_context("region") or "us-east-1",
 )
 
+# Orden de dependencias: networking -> ecr/secrets/storage -> database/cache
+# -> services -> lambdas.
 networking = NetworkingStack(app, "SwardNetworking", env=env)
+
+ecr = EcrStack(app, "SwardEcr", env=env)
+secrets = SecretsStack(app, "SwardSecrets", env=env)
 storage = StorageStack(app, "SwardStorage", env=env)
+
 database = DatabaseStack(app, "SwardDatabase", vpc=networking.vpc, env=env)
-services = ServicesStack(app, "SwardServices", vpc=networking.vpc, env=env)
-lambdas = LambdasStack(app, "SwardLambdas", vpc=networking.vpc, env=env)
+cache = CacheStack(app, "SwardCache", vpc=networking.vpc, env=env)
+
+services = ServicesStack(
+    app,
+    "SwardServices",
+    vpc=networking.vpc,
+    db_instances=database.instances,
+    db_credentials={name: inst.secret for name, inst in database.instances.items()},
+    db_security_group=database.security_group,
+    redis_security_group=cache.security_group,
+    redis_port=cache.port,
+    jwt_secret=secrets.jwt_secret,
+    service_keys=secrets.service_keys,
+    moodle_token=secrets.moodle_token,
+    redis_endpoint=cache.redis_endpoint,
+    env=env,
+)
+
+lambdas = LambdasStack(
+    app,
+    "SwardLambdas",
+    vpc=networking.vpc,
+    # Nombre literal del bucket (definido en StorageStack) para evitar un token
+    # cruzado entre stacks en la notificación S3 -> lambda-recursos.
+    recursos_bucket_name="sward-recursos-educativos",
+    env=env,
+)
+
+# Dependencias explícitas (algunas ya son implícitas por referencias cruzadas).
+database.add_dependency(networking)
+cache.add_dependency(networking)
+services.add_dependency(ecr)
+services.add_dependency(secrets)
+services.add_dependency(database)
+services.add_dependency(cache)
+# Nota: no se declara lambdas.add_dependency(storage) porque la notificación
+# S3 -> lambda-recursos hace que StorageStack dependa de LambdasStack (la
+# dependencia fluye en sentido inverso, gestionada por CDK automáticamente).
 
 app.synth()
