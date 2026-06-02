@@ -2,8 +2,8 @@
 
 Inventario actualizado del sistema. Actualizar al final de cada sprint.
 
-**Última actualización:** 2026-05-30  
-**Sprint actual:** 0 — Fundaciones
+**Última actualización:** 2026-06-02  
+**Sprint actual:** Completado — Backend production-ready
 
 ---
 
@@ -42,26 +42,27 @@ Inyección de config en ECS: `ENVIRONMENT=production`, `DATABASE_HOST/PORT/NAME`
 `DB_PASSWORD`, `SECRET_KEY`, `SERVICE_KEY`, `MOODLE_TOKEN`, `REDIS_URL` (xai)
 desde Secrets Manager. La app compone `DATABASE_URL` con los componentes.
 
-Ver [`DEPLOYMENT.md`](DEPLOYMENT.md) para el procedimiento de despliegue.
+Ver [`DEPLOYMENT.md`](DEPLOYMENT.md) y [`DEPLOY_FLOW.md`](DEPLOY_FLOW.md) para el procedimiento y diagrama completo de despliegue.
 
 ---
 
 ## Estado de los Repositorios
 
-| Repo | Sprint | Estado | URL |
-|---|---|---|---|
-| sward-shared | 0 | ✅ Implementado | https://github.com/sward-UPC/sward-shared |
-| sward-infra | 0 | ✅ Skeleton | https://github.com/sward-UPC/sward-infra |
-| sward-ms-usuarios | 1 | ⏳ Pendiente | https://github.com/sward-UPC/sward-ms-usuarios |
-| sward-ms-integracion-lms | 2 | ⏳ Pendiente | https://github.com/sward-UPC/sward-ms-integracion-lms |
-| sward-ms-trazabilidad | 3 | ⏳ Pendiente | https://github.com/sward-UPC/sward-ms-trazabilidad |
-| sward-ms-cursos-recursos | 4 | ⏳ Pendiente | https://github.com/sward-UPC/sward-ms-cursos-recursos |
-| sward-ms-recomendacion | 4 | ⏳ Pendiente | https://github.com/sward-UPC/sward-ms-recomendacion |
-| sward-ms-xai | 5 | ⏳ Pendiente | https://github.com/sward-UPC/sward-ms-xai |
-| sward-lambda-moodle-sync | 2 | ⏳ Pendiente | https://github.com/sward-UPC/sward-lambda-moodle-sync |
-| sward-lambda-interacciones | 3 | ⏳ Pendiente | https://github.com/sward-UPC/sward-lambda-interacciones |
-| sward-lambda-alertas | 5 | ⏳ Pendiente | https://github.com/sward-UPC/sward-lambda-alertas |
-| sward-lambda-recursos | 4 | ⏳ Pendiente | https://github.com/sward-UPC/sward-lambda-recursos |
+| Repo | Estado | Tests | OpenAPI | CI/CD | GHCR |
+|---|---|---|---|---|---|
+| sward-shared | ✅ Implementado | ✅ | — | ✅ | — |
+| sward-infra | ✅ 8 stacks CDK | — | — | ✅ diff+deploy | — |
+| sward-ms-usuarios | ✅ Completo | ✅ 19/19 | ✅ Enriquecida | ✅ | ✅ |
+| sward-ms-integracion-lms | ✅ Completo | ✅ 11/11 | ✅ Enriquecida | ✅ | ✅ |
+| sward-ms-trazabilidad | ✅ Completo | ✅ 15/15 | ✅ Enriquecida | ✅ | ✅ |
+| sward-ms-cursos-recursos | ✅ Completo | ✅ 15/15 | ✅ Enriquecida | ✅ | ✅ |
+| sward-ms-recomendacion | ✅ Completo | ✅ 14/14 | ✅ Enriquecida | ✅ | ✅ |
+| sward-ms-xai | ✅ Completo | ✅ 7/7 | ✅ Enriquecida | ✅ | ✅ |
+| sward-lambda-moodle-sync | ✅ Completo | ✅ 4/4 | — | ✅ | ✅ |
+| sward-lambda-interacciones | ✅ Completo | ✅ 9/9 | — | ✅ | ✅ |
+| sward-lambda-alertas | ✅ Completo | ✅ 12/12 | — | ✅ | ✅ |
+| sward-lambda-recursos | ✅ Completo | ✅ 18/18 | — | ✅ | ✅ |
+| sward-moodle-test | ✅ Entorno pruebas | — | — | — | — |
 
 ---
 
@@ -117,6 +118,36 @@ MOODLE_BASE_URL=https://moodle.example.com
 MOODLE_TOKEN=
 MOODLE_MOCK=true
 ```
+
+---
+
+## CI/CD
+
+### Workflows centralizados (`sward-UPC/.github`)
+
+| Workflow | Trigger | Acción |
+|---|---|---|
+| `ci-microservice.yml` | push/PR a `main` | lint + bandit + tests |
+| `ci-lambda.yml` | push/PR a `main` | lint + tests |
+| `build-push-ghcr.yml` | push a `deploy` | build Docker + push GHCR + deploy AWS (si `SEND_TO_AWS=true`) |
+
+### GitHub Secrets (org level — `sward-UPC`)
+
+| Secret | Descripción |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | Credencial IAM para deploy |
+| `AWS_SECRET_ACCESS_KEY` | Credencial IAM para deploy |
+| `AWS_REGION` | Región AWS (`us-east-1`) |
+| `SEND_TO_AWS` | `false` (cambiar a `true` para activar deploy automático a ECS/Lambda) |
+
+### Imágenes Docker (GHCR)
+
+```
+ghcr.io/sward-upc/sward-ms-<nombre>:<timestamp>
+ghcr.io/sward-upc/sward-lambda-<nombre>:<timestamp>
+```
+
+Tag formato: `YYYY-MM-DD-HHmmss` (UTC)
 
 ---
 
