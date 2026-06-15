@@ -2,6 +2,7 @@ from aws_cdk import (
     Stack,
     Duration,
     aws_ec2 as ec2,
+    aws_ecr as ecr,
     aws_events as events,
     aws_events_targets as targets,
     aws_lambda as lambda_,
@@ -11,17 +12,6 @@ from aws_cdk import (
     aws_sqs as sqs,
 )
 from constructs import Construct
-
-# Código placeholder. El deploy real de cada Lambda lo hace su propio repo con
-# AWS SAM (sward-lambda-*). Aquí definimos la función, sus triggers y permisos
-# para que la topología quede declarada en el stack. El bundle real se sustituye
-# en el pipeline de cada Lambda (sam build && sam deploy) o vía CI que actualice
-# el código de la función ya creada por este stack.
-_PLACEHOLDER_CODE = lambda_.Code.from_inline(
-    "def handler(event, context):\n"
-    "    # Placeholder — reemplazado por el deploy SAM del repo de la Lambda.\n"
-    "    return {'statusCode': 200}\n"
-)
 
 
 class LambdasStack(Stack):
@@ -76,25 +66,27 @@ class LambdasStack(Stack):
             ),
         )
 
-        common = {
-            "runtime": lambda_.Runtime.PYTHON_3_11,
-            "handler": "handler.handler",
-            "code": _PLACEHOLDER_CODE,
-            "timeout": Duration.seconds(60),
-            "environment": {
-                "ENVIRONMENT": "production",
-                "EVENTBRIDGE_BUS_NAME": self.event_bus.event_bus_name,
-            },
+        common_env = {
+            "ENVIRONMENT": "production",
+            "EVENTBRIDGE_BUS_NAME": self.event_bus.event_bus_name,
         }
 
-        self.functions: dict[str, lambda_.Function] = {}
+        def _ecr_image(name: str) -> lambda_.DockerImageCode:
+            repo = ecr.Repository.from_repository_name(
+                self, f"EcrLambda{name.replace('-','').title()}", f"sward/lambda-{name}"
+            )
+            return lambda_.DockerImageCode.from_ecr(repo, tag_or_digest="latest")
+
+        self.functions: dict[str, lambda_.DockerImageFunction] = {}
 
         # 1) lambda-interacciones <- SQS (alimentada por EventBridge).
-        fn_interacciones = lambda_.Function(
+        fn_interacciones = lambda_.DockerImageFunction(
             self,
             "LambdaInteracciones",
             function_name="sward-lambda-interacciones",
-            **common,
+            code=_ecr_image("interacciones"),
+            timeout=Duration.seconds(60),
+            environment=common_env,
         )
         fn_interacciones.add_event_source(
             lambda_events.SqsEventSource(self.interacciones_queue, batch_size=10)
@@ -102,29 +94,35 @@ class LambdasStack(Stack):
         self.functions["interacciones"] = fn_interacciones
 
         # 2) lambda-alertas <- EventBridge (RecomendacionGenerada).
-        fn_alertas = lambda_.Function(
+        fn_alertas = lambda_.DockerImageFunction(
             self,
             "LambdaAlertas",
             function_name="sward-lambda-alertas",
-            **common,
+            code=_ecr_image("alertas"),
+            timeout=Duration.seconds(60),
+            environment=common_env,
         )
         self.functions["alertas"] = fn_alertas
 
         # 3) lambda-moodle-sync <- schedule cada 15 min.
-        fn_moodle = lambda_.Function(
+        fn_moodle = lambda_.DockerImageFunction(
             self,
             "LambdaMoodleSync",
             function_name="sward-lambda-moodle-sync",
-            **common,
+            code=_ecr_image("moodle-sync"),
+            timeout=Duration.seconds(60),
+            environment=common_env,
         )
         self.functions["moodle-sync"] = fn_moodle
 
         # 4) lambda-recursos <- S3 ObjectCreated.
-        fn_recursos = lambda_.Function(
+        fn_recursos = lambda_.DockerImageFunction(
             self,
             "LambdaRecursos",
             function_name="sward-lambda-recursos",
-            **common,
+            code=_ecr_image("recursos"),
+            timeout=Duration.seconds(60),
+            environment=common_env,
         )
         self.functions["recursos"] = fn_recursos
 
