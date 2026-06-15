@@ -3,7 +3,6 @@ from aws_cdk import (
     Duration,
     aws_ec2 as ec2,
     aws_ecs as ecs,
-    aws_ecr as ecr,
     aws_elasticloadbalancingv2 as elbv2,
     aws_logs as logs,
     aws_servicediscovery as servicediscovery,
@@ -184,11 +183,6 @@ class ServicesStack(Stack):
         for name, cfg in SERVICES.items():
             logical_id = name.replace("-", " ").title().replace(" ", "")
 
-            # Imagen desde el repositorio ECR correspondiente (tag "latest").
-            repo = ecr.Repository.from_repository_name(
-                self, f"Repo{logical_id}", repository_name=f"sward/{name}"
-            )
-
             task_def = ecs.FargateTaskDefinition(
                 self,
                 f"Task{logical_id}",
@@ -250,7 +244,9 @@ class ServicesStack(Stack):
             container = task_def.add_container(
                 f"Container{logical_id}",
                 container_name=name,
-                image=ecs.ContainerImage.from_ecr_repository(repo, "latest"),
+                image=ecs.ContainerImage.from_registry(
+                    f"ghcr.io/sward-upc/sward-ms-{name}:latest"
+                ),
                 environment=environment,
                 secrets=secret_env,
                 logging=ecs.LogDriver.aws_logs(stream_prefix=name, log_group=log_group),
