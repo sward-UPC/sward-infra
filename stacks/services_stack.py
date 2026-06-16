@@ -1,10 +1,12 @@
 from aws_cdk import (
     Stack,
     Duration,
+    RemovalPolicy,
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_elasticloadbalancingv2 as elbv2,
     aws_logs as logs,
+    aws_s3 as s3,
     aws_servicediscovery as servicediscovery,
     aws_secretsmanager as secretsmanager,
 )
@@ -43,6 +45,19 @@ SERVICES = {
 }
 
 CONTAINER_PORT = 8000
+
+# Grafo de callers s2s: quién está autorizado a llamar a cada servicio.
+# CDK inyecta la SERVICE_KEY de cada caller como ECS Secret en el receptor,
+# que la recibe como env var AUTHORIZED_<CALLER>_KEY y la valida en el header
+# X-Service-Key. Si el set está vacío el middleware pasa todo (modo desarrollo).
+AUTHORIZED_CALLERS: dict[str, list[str]] = {
+    "integracion-lms": ["trazabilidad"],
+    "trazabilidad": ["recomendacion"],
+    "cursos-recursos": ["recomendacion"],
+    "xai": ["recomendacion"],
+    "recomendacion": [],  # solo JWT de usuarios finales
+    "usuarios": [],  # solo JWT de usuarios finales
+}
 
 
 class ServicesStack(Stack):
@@ -84,6 +99,7 @@ class ServicesStack(Stack):
         moodle_token: secretsmanager.ISecret | None = None,
         redis_endpoint: str | None = None,
         event_bus_name: str = "sward-event-bus",
+        models_bucket: s3.IBucket | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -114,7 +130,7 @@ class ServicesStack(Stack):
         self.service_security_group.add_ingress_rule(
             peer=self.service_security_group,
             connection=ec2.Port.tcp(CONTAINER_PORT),
-            description="Tráfico service-to-service entre tasks SWARD",
+            description="Trafico service-to-service entre tasks SWARD",
         )
 
         # Abrir ingress en los SG de RDS y Redis SOLO desde el SG de ECS.
@@ -176,6 +192,7 @@ class ServicesStack(Stack):
             "SwardEcsLogs",
             log_group_name="/ecs/sward",
             retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.DESTROY,
         )
 
         self.services: dict[str, ecs.FargateService] = {}
@@ -203,6 +220,11 @@ class ServicesStack(Stack):
                 environment[env_key] = (
                     f"http://{other}.{self.namespace.namespace_name}:{CONTAINER_PORT}"
                 )
+            # Aliases cortos requeridos por algunos settings.py.
+            environment["LMS_SERVICE_URL"] = environment["INTEGRACION_LMS_SERVICE_URL"]
+            environment["CURSOS_SERVICE_URL"] = environment[
+                "CURSOS_RECURSOS_SERVICE_URL"
+            ]
 
             db = db_instances.get(name)
             if db is not None:
@@ -216,6 +238,10 @@ class ServicesStack(Stack):
 
             if name == "integracion-lms":
                 environment["MOODLE_MOCK"] = "false"
+
+            # Permisos S3 para ms-recomendacion (descarga del modelo SAKT al arrancar).
+            if name == "recomendacion" and models_bucket is not None:
+                models_bucket.grant_read(task_def.task_role)
 
             # ---- Secretos (Secrets Manager) ----
             secret_env: dict[str, ecs.Secret] = {}
@@ -240,6 +266,17 @@ class ServicesStack(Stack):
                 secret_env["MOODLE_TOKEN"] = ecs.Secret.from_secrets_manager(
                     moodle_token, "moodle_token"
                 )
+
+            # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
+            # El container la recibe como AUTHORIZED_<CALLER>_KEY en texto plano
+            # (ECS resuelve el secreto antes de arrancar el container).
+            for caller in AUTHORIZED_CALLERS.get(name, []):
+                caller_sk = (service_keys or {}).get(caller)
+                if caller_sk is not None:
+                    env_key = f"AUTHORIZED_{caller.replace('-', '_').upper()}_KEY"
+                    secret_env[env_key] = ecs.Secret.from_secrets_manager(
+                        caller_sk, "service_key"
+                    )
 
             container = task_def.add_container(
                 f"Container{logical_id}",

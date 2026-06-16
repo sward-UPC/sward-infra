@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import os
+
 import aws_cdk as cdk
 
 from stacks.networking_stack import NetworkingStack
@@ -9,12 +11,14 @@ from stacks.cache_stack import CacheStack
 from stacks.storage_stack import StorageStack
 from stacks.services_stack import ServicesStack
 from stacks.lambdas_stack import LambdasStack
+from stacks.cloudfront_stack import CloudfrontStack
 
 app = cdk.App()
 
 env = cdk.Environment(
-    account=app.node.try_get_context("account") or "123456789012",
-    region=app.node.try_get_context("region") or "us-east-1",
+    account=app.node.try_get_context("account") or os.environ["CDK_DEFAULT_ACCOUNT"],
+    region=app.node.try_get_context("region")
+    or os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
 )
 
 # Orden de dependencias: networking -> ecr/secrets/storage -> database/cache
@@ -28,12 +32,14 @@ storage = StorageStack(app, "SwardStorage", env=env)
 database = DatabaseStack(app, "SwardDatabase", vpc=networking.vpc, env=env)
 cache = CacheStack(app, "SwardCache", vpc=networking.vpc, env=env)
 
+_db_credentials = {name: inst.secret for name, inst in database.instances.items()}
+
 services = ServicesStack(
     app,
     "SwardServices",
     vpc=networking.vpc,
     db_instances=database.instances,
-    db_credentials={name: inst.secret for name, inst in database.instances.items()},
+    db_credentials=_db_credentials,
     db_security_group=database.security_group,
     redis_security_group=cache.security_group,
     redis_port=cache.port,
@@ -41,6 +47,7 @@ services = ServicesStack(
     service_keys=secrets.service_keys,
     moodle_token=secrets.moodle_token,
     redis_endpoint=cache.redis_endpoint,
+    models_bucket=storage.models_bucket,
     env=env,
 )
 
@@ -48,6 +55,9 @@ lambdas = LambdasStack(
     app,
     "SwardLambdas",
     vpc=networking.vpc,
+    db_instances=database.instances,
+    db_credentials=_db_credentials,
+    db_security_group=database.security_group,
     # Nombre literal del bucket (definido en StorageStack) para evitar un token
     # cruzado entre stacks en la notificación S3 -> lambda-recursos.
     recursos_bucket_name="sward-recursos-educativos",
@@ -61,8 +71,17 @@ services.add_dependency(ecr)
 services.add_dependency(secrets)
 services.add_dependency(database)
 services.add_dependency(cache)
+lambdas.add_dependency(database)
 # Nota: no se declara lambdas.add_dependency(storage) porque la notificación
 # S3 -> lambda-recursos hace que StorageStack dependa de LambdasStack (la
 # dependencia fluye en sentido inverso, gestionada por CDK automáticamente).
+
+cloudfront_dist = CloudfrontStack(
+    app,
+    "SwardCloudfront",
+    alb=services.alb,
+    env=env,
+)
+cloudfront_dist.add_dependency(services)
 
 app.synth()
