@@ -35,18 +35,15 @@ jobs:
       - name: Verificar formato con ruff
         run: ruff format --check stacks/ app.py
 
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
       - name: CDK Synth (validar stacks)
         run: cdk synth
-        env:
-          AWS_DEFAULT_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: fake-key
-          AWS_SECRET_ACCESS_KEY: fake-secret
-          CDK_DEFAULT_ACCOUNT: "050451404093"
-          CDK_DEFAULT_REGION: us-east-1
 
       - name: CDK Diff (preview de cambios vs AWS)
         run: cdk diff --all 2>&1 || true
-        env:
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'fake-key' }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'fake-secret' }}
