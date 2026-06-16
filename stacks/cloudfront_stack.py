@@ -1,5 +1,6 @@
 from aws_cdk import (
     CfnOutput,
+    Duration,
     Stack,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
@@ -25,6 +26,8 @@ class CloudfrontStack(Stack):
       * REDIRECT_TO_HTTPS — fuerza HTTPS en el viewer, HTTP en el origin.
       * CloudFront Function (viewer-request) — reescribe /api/v1/* → /* para que
         los microservicios no necesiten manejar el prefijo de versión.
+      * ResponseHeadersPolicy CORS — permite que el portal Scalar en GitHub Pages
+        haga fetch de los openapi.json sin tocar los microservicios.
     """
 
     def __init__(
@@ -37,24 +40,45 @@ class CloudfrontStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # Reescribe /api/v1/<path> → /<path> antes de llegar al ALB.
-        # Los servicios internos siguen usando sus rutas sin prefijo de versión.
         strip_prefix_fn = cloudfront.Function(
             self,
             "StripApiV1Prefix",
             function_name="sward-strip-api-v1",
             code=cloudfront.FunctionCode.from_inline(
-                """
-function handler(event) {
-    var request = event.request;
-    var uri = request.uri;
-    if (uri === '/api/v1' || uri.startsWith('/api/v1/')) {
-        request.uri = uri.slice('/api/v1'.length) || '/';
-    }
-    return request;
-}
-""".strip()
+                "function handler(event) {"
+                "\n    var request = event.request;"
+                "\n    var uri = request.uri;"
+                "\n    if (uri === '/api/v1' || uri.startsWith('/api/v1/')) {"
+                "\n        request.uri = uri.slice('/api/v1'.length) || '/';"
+                "\n    }"
+                "\n    return request;"
+                "\n}"
             ),
             runtime=cloudfront.FunctionRuntime.JS_2_0,
+        )
+
+        # CORS para el portal Scalar en GitHub Pages.
+        # Se gestiona aquí (gateway) para no modificar ningún microservicio.
+        cors_policy = cloudfront.ResponseHeadersPolicy(
+            self,
+            "SwardCorsPolicy",
+            response_headers_policy_name="sward-cors-api",
+            cors_behavior=cloudfront.ResponseHeadersCorsBehavior(
+                access_control_allow_credentials=False,
+                access_control_allow_headers=["*"],
+                access_control_allow_methods=[
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE",
+                    "PATCH",
+                    "OPTIONS",
+                    "HEAD",
+                ],
+                access_control_allow_origins=["https://sward-upc.github.io"],
+                access_control_max_age=Duration.seconds(600),
+                origin_override=True,
+            ),
         )
 
         distribution = cloudfront.Distribution(
@@ -71,6 +95,7 @@ function handler(event) {
                 cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                response_headers_policy=cors_policy,
                 function_associations=[
                     cloudfront.FunctionAssociation(
                         function=strip_prefix_fn,
