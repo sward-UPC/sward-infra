@@ -16,7 +16,8 @@ from stacks.cloudfront_stack import CloudfrontStack
 app = cdk.App()
 
 env = cdk.Environment(
-    account=app.node.try_get_context("account") or os.environ["CDK_DEFAULT_ACCOUNT"],
+    account=app.node.try_get_context("account")
+    or os.environ.get("CDK_DEFAULT_ACCOUNT", "050451404093"),
     region=app.node.try_get_context("region")
     or os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
 )

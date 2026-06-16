@@ -41,6 +41,8 @@ jobs:
           AWS_DEFAULT_REGION: us-east-1
           AWS_ACCESS_KEY_ID: fake-key
           AWS_SECRET_ACCESS_KEY: fake-secret
+          CDK_DEFAULT_ACCOUNT: "050451404093"
+          CDK_DEFAULT_REGION: us-east-1
 
       - name: CDK Diff (preview de cambios vs AWS)
         run: cdk diff --all 2>&1 || true
