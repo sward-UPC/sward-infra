@@ -5,6 +5,7 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_elasticloadbalancingv2 as elbv2,
+    aws_iam as iam,
     aws_logs as logs,
     aws_s3 as s3,
     aws_servicediscovery as servicediscovery,
@@ -238,6 +239,14 @@ class ServicesStack(Stack):
 
             if name == "integracion-lms":
                 environment["MOODLE_MOCK"] = "false"
+                task_def.task_role.add_to_principal_policy(
+                    iam.PolicyStatement(
+                        actions=["events:PutEvents"],
+                        resources=[
+                            f"arn:aws:events:{self.region}:{self.account}:event-bus/{event_bus_name}"
+                        ],
+                    )
+                )
 
             # Permisos S3 para ms-recomendacion (descarga del modelo SAKT al arrancar).
             if name == "recomendacion" and models_bucket is not None:
