@@ -233,8 +233,8 @@ class ServicesStack(Stack):
                 environment["DATABASE_PORT"] = db.db_instance_endpoint_port
                 environment["DATABASE_NAME"] = f"sward_{name.replace('-', '_')}"
 
-            # Redis solo para xai.
-            if name == "xai" and redis_endpoint is not None:
+            # Redis para xai (caché de modelos) y usuarios (sesiones/blacklist JWT).
+            if name in ("xai", "usuarios") and redis_endpoint is not None:
                 environment["REDIS_URL"] = f"redis://{redis_endpoint}:6379/0"
 
             if name == "integracion-lms":
