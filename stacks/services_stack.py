@@ -239,6 +239,14 @@ class ServicesStack(Stack):
 
             if name == "integracion-lms":
                 environment["MOODLE_MOCK"] = "false"
+
+            # Todos los servicios con event publisher necesitan PutEvents.
+            if name in (
+                "integracion-lms",
+                "usuarios",
+                "trazabilidad",
+                "cursos-recursos",
+            ):
                 task_def.task_role.add_to_principal_policy(
                     iam.PolicyStatement(
                         actions=["events:PutEvents"],
