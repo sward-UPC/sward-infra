@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_lambda_event_sources as lambda_events,
     aws_s3 as s3,
     aws_s3_notifications as s3n,
+    aws_secretsmanager as secretsmanager,
     aws_sqs as sqs,
 )
 from constructs import Construct
@@ -255,6 +256,15 @@ class LambdasStack(Stack):
             },
         )
         _grant_ecr_pull(fn_moodle, _repo_moodle)
+        # Service key para autenticarse contra el endpoint interno de ms-integracion-lms.
+        # Se inyecta el valor directo (unsafe_unwrap) porque el handler no usa boto3.
+        _lms_key_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "LmsServiceKeySecret", "sward/service-key/integracion-lms"
+        )
+        fn_moodle.add_environment(
+            "LMS_SERVICE_KEY",
+            _lms_key_secret.secret_value_from_json("service_key").unsafe_unwrap(),
+        )
         self.functions["moodle-sync"] = fn_moodle
 
         # 4) lambda-recursos <- S3 ObjectCreated.
