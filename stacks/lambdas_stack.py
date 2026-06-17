@@ -5,6 +5,7 @@ from aws_cdk import (
     aws_ecr as ecr,
     aws_events as events,
     aws_events_targets as targets,
+    aws_iam as iam,
     aws_lambda as lambda_,
     aws_lambda_event_sources as lambda_events,
     aws_s3 as s3,
@@ -104,13 +105,32 @@ class LambdasStack(Stack):
             "EVENTBRIDGE_BUS_NAME": self.event_bus.event_bus_name,
         }
 
-        def _ecr_image(name: str) -> lambda_.DockerImageCode:
+        def _ecr_image(
+            name: str,
+        ) -> tuple[lambda_.DockerImageCode, ecr.IRepository]:
             repo = ecr.Repository.from_repository_name(
                 self,
                 f"EcrLambda{name.replace('-', '').title()}",
                 f"sward/lambda-{name}",
             )
-            return lambda_.DockerImageCode.from_ecr(repo, tag_or_digest="latest")
+            return lambda_.DockerImageCode.from_ecr(repo, tag_or_digest="latest"), repo
+
+        def _grant_ecr_pull(
+            fn: lambda_.DockerImageFunction, repo: ecr.IRepository
+        ) -> None:
+            """Concede permisos de pull ECR al rol de la Lambda.
+
+            grant_pull() otorga BatchCheckLayerAvailability/GetDownloadUrlForLayer/
+            BatchGetImage sobre el repo. GetAuthorizationToken (recurso *) es
+            necesario adicionalmente para que Lambda pueda autenticarse con ECR.
+            """
+            repo.grant_pull(fn)
+            fn.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["ecr:GetAuthorizationToken"],
+                    resources=["*"],
+                )
+            )
 
         def _db_env(service: str) -> dict[str, str]:
             """Devuelve env vars de conexión a RDS para un servicio dado."""
@@ -133,17 +153,19 @@ class LambdasStack(Stack):
         self.functions: dict[str, lambda_.DockerImageFunction] = {}
 
         # 1) lambda-interacciones <- SQS (alimentada por EventBridge).
+        _code_interacciones, _repo_interacciones = _ecr_image("interacciones")
         fn_interacciones = lambda_.DockerImageFunction(
             self,
             "LambdaInteracciones",
             function_name="sward-lambda-interacciones",
-            code=_ecr_image("interacciones"),
+            code=_code_interacciones,
             timeout=Duration.seconds(60),
             vpc=vpc,
             vpc_subnets=vpc_subnets,
             security_groups=[self.lambda_security_group],
             environment={**common_env, **_db_env("trazabilidad")},
         )
+        _grant_ecr_pull(fn_interacciones, _repo_interacciones)
         _grant_db_secret(fn_interacciones, "trazabilidad")
         fn_interacciones.add_event_source(
             lambda_events.SqsEventSource(self.interacciones_queue, batch_size=10)
@@ -151,11 +173,12 @@ class LambdasStack(Stack):
         self.functions["interacciones"] = fn_interacciones
 
         # 2) lambda-alertas <- EventBridge (RecomendacionGenerada).
+        _code_alertas, _repo_alertas = _ecr_image("alertas")
         fn_alertas = lambda_.DockerImageFunction(
             self,
             "LambdaAlertas",
             function_name="sward-lambda-alertas",
-            code=_ecr_image("alertas"),
+            code=_code_alertas,
             timeout=Duration.seconds(60),
             vpc=vpc,
             vpc_subnets=vpc_subnets,
@@ -195,14 +218,16 @@ class LambdasStack(Stack):
         if xai_cred is not None:
             xai_cred.grant_read(fn_alertas)
             fn_alertas.add_environment("XAI_DB_SECRET_ARN", xai_cred.secret_arn)
+        _grant_ecr_pull(fn_alertas, _repo_alertas)
         self.functions["alertas"] = fn_alertas
 
         # 3) lambda-moodle-sync <- schedule cada 15 min.
+        _code_moodle, _repo_moodle = _ecr_image("moodle-sync")
         fn_moodle = lambda_.DockerImageFunction(
             self,
             "LambdaMoodleSync",
             function_name="sward-lambda-moodle-sync",
-            code=_ecr_image("moodle-sync"),
+            code=_code_moodle,
             timeout=Duration.seconds(60),
             vpc=vpc,
             vpc_subnets=vpc_subnets,
@@ -215,20 +240,23 @@ class LambdasStack(Stack):
                 ),
             },
         )
+        _grant_ecr_pull(fn_moodle, _repo_moodle)
         self.functions["moodle-sync"] = fn_moodle
 
         # 4) lambda-recursos <- S3 ObjectCreated.
+        _code_recursos, _repo_recursos = _ecr_image("recursos")
         fn_recursos = lambda_.DockerImageFunction(
             self,
             "LambdaRecursos",
             function_name="sward-lambda-recursos",
-            code=_ecr_image("recursos"),
+            code=_code_recursos,
             timeout=Duration.seconds(60),
             vpc=vpc,
             vpc_subnets=vpc_subnets,
             security_groups=[self.lambda_security_group],
             environment={**common_env, **_db_env("cursos-recursos")},
         )
+        _grant_ecr_pull(fn_recursos, _repo_recursos)
         _grant_db_secret(fn_recursos, "cursos-recursos")
         self.functions["recursos"] = fn_recursos
 
