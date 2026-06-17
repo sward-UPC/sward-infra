@@ -1,0 +1,127 @@
+name: Destruir infraestructura CDK (IRREVERSIBLE)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmacion:
+        description: >
+          ADVERTENCIA: Esta acción destruye TODA la infraestructura de forma IRREVERSIBLE.
+          Se eliminarán: ECS, RDS, Lambdas, Redis, ALB, NAT Gateway, VPC y todos los datos.
+          Escribe DESTRUIR para confirmar.
+        required: true
+        type: string
+
+jobs:
+  destruir:
+    name: CDK Destroy (IRREVERSIBLE)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── Validar confirmación antes de hacer nada ──────────────────────────
+      - name: Verificar confirmación del usuario
+        run: |
+          if [ "${{ github.event.inputs.confirmacion }}" != "DESTRUIR" ]; then
+            echo "============================================"
+            echo "  ERROR: Confirmación inválida"
+            echo "============================================"
+            echo ""
+            echo "Escribiste: '${{ github.event.inputs.confirmacion }}'"
+            echo "Se esperaba: 'DESTRUIR'"
+            echo ""
+            echo "El workflow fue cancelado de forma segura."
+            echo "No se destruyó ningún recurso."
+            exit 1
+          fi
+          echo "============================================"
+          echo "  CONFIRMACIÓN ACEPTADA — PROCEDIENDO"
+          echo "============================================"
+          echo ""
+          echo "Usuario:  ${{ github.actor }}"
+          echo "Fecha:    $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "*** ADVERTENCIA: SE DESTRUIRÁ TODA LA INFRAESTRUCTURA ***"
+          echo "*** ESTO ES IRREVERSIBLE — SE PERDERÁN TODOS LOS DATOS ***"
+
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar AWS CDK CLI
+        run: |
+          echo "=== Instalando AWS CDK CLI ==="
+          npm install -g aws-cdk
+          cdk --version
+
+      - name: Instalar dependencias del proyecto
+        run: |
+          echo "=== Instalando dependencias Python ==="
+          pip install -q -r requirements.txt -r requirements-dev.txt
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Verificar identidad AWS
+        run: |
+          echo "=== Identidad AWS activa ==="
+          aws sts get-caller-identity
+
+      # ── CDK Destroy ───────────────────────────────────────────────────────
+      - name: CDK Destroy — eliminar toda la infraestructura
+        run: |
+          echo "============================================"
+          echo "  INICIANDO CDK DESTROY --ALL"
+          echo "============================================"
+          echo ""
+          echo "Destruyendo todos los stacks CDK de SWARD..."
+          echo ""
+          cdk destroy --all --force --require-approval never
+          echo ""
+          echo "============================================"
+          echo "  CDK DESTROY COMPLETADO"
+          echo "============================================"
+
+      # ── Confirmación final ────────────────────────────────────────────────
+      - name: Confirmar destrucción completada
+        if: success()
+        run: |
+          echo "============================================"
+          echo "  INFRAESTRUCTURA SWARD DESTRUIDA"
+          echo "============================================"
+          echo ""
+          echo "Todos los stacks CDK han sido eliminados."
+          echo "Recursos destruidos: ECS, RDS, Lambdas, Redis,"
+          echo "ALB, NAT Gateway, VPC, EventBridge, SQS y más."
+          echo ""
+          echo "Ejecutado por: ${{ github.actor }}"
+          echo "Fecha:         $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Error en la destrucción
+        if: failure()
+        run: |
+          echo "============================================"
+          echo "  ERROR DURANTE CDK DESTROY"
+          echo "============================================"
+          echo ""
+          echo "Algunos stacks pueden haberse destruido parcialmente."
+          echo "Revisa la consola de AWS CloudFormation para ver"
+          echo "el estado actual de cada stack."
+          echo ""
+          echo "Ejecutado por: ${{ github.actor }}"
+          echo "Fecha:         $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          exit 1

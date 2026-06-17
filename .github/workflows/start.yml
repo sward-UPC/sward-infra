@@ -1,0 +1,150 @@
+name: Encender infraestructura (Start)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  start:
+    name: Encender RDS, ECS y Lambdas
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ── RDS: iniciar instancias y esperar que estén disponibles ───────────
+      - name: Iniciar instancias RDS
+        run: |
+          echo "=== Descubriendo instancias RDS con prefijo 'sward' ==="
+          INSTANCIAS=$(aws rds describe-db-instances \
+            --query "DBInstances[?contains(DBInstanceIdentifier,'sward')].DBInstanceIdentifier" \
+            --output text)
+
+          if [ -z "$INSTANCIAS" ]; then
+            echo "No se encontraron instancias RDS con prefijo 'sward'."
+          else
+            for INSTANCIA in $INSTANCIAS; do
+              ESTADO=$(aws rds describe-db-instances \
+                --db-instance-identifier "$INSTANCIA" \
+                --query "DBInstances[0].DBInstanceStatus" \
+                --output text)
+              echo "→ Instancia '$INSTANCIA' — estado actual: $ESTADO"
+
+              if [ "$ESTADO" = "stopped" ]; then
+                echo "  Iniciando '$INSTANCIA'..."
+                aws rds start-db-instance \
+                  --db-instance-identifier "$INSTANCIA" \
+                  --no-cli-pager \
+                  --output text \
+                  --query "DBInstance.DBInstanceStatus" \
+                && echo "  ✓ '$INSTANCIA' en proceso de inicio"
+              else
+                echo "  ↷ '$INSTANCIA' no está en estado 'stopped' ($ESTADO), se omite"
+              fi
+            done
+          fi
+          echo "=== RDS: solicitudes de inicio enviadas ==="
+
+      - name: Esperar que las instancias RDS estén disponibles
+        run: |
+          echo "=== Esperando disponibilidad de todas las instancias RDS 'sward' ==="
+          INSTANCIAS=$(aws rds describe-db-instances \
+            --query "DBInstances[?contains(DBInstanceIdentifier,'sward')].DBInstanceIdentifier" \
+            --output text)
+
+          if [ -z "$INSTANCIAS" ]; then
+            echo "No hay instancias que esperar."
+          else
+            for INSTANCIA in $INSTANCIAS; do
+              echo "→ Esperando que '$INSTANCIA' quede en estado 'available'..."
+              aws rds wait db-instance-available \
+                --db-instance-identifier "$INSTANCIA" \
+              && echo "  ✓ '$INSTANCIA' disponible" \
+              || echo "  ✗ Timeout esperando '$INSTANCIA'"
+            done
+          fi
+          echo "=== RDS: todas las instancias disponibles ==="
+
+      # ── ECS: escalar todos los servicios a 1 ─────────────────────────────
+      - name: Escalar servicios ECS a 1
+        run: |
+          CLUSTER="sward-cluster"
+          SERVICIOS=(
+            "usuarios"
+            "integracion-lms"
+            "trazabilidad"
+            "cursos-recursos"
+            "recomendacion"
+            "xai"
+          )
+
+          echo "=== Encendiendo servicios ECS en cluster '$CLUSTER' ==="
+          for SERVICIO in "${SERVICIOS[@]}"; do
+            echo "→ Escalando '$SERVICIO' a 1 tarea..."
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$SERVICIO" \
+              --desired-count 1 \
+              --no-cli-pager \
+              --output text \
+              --query "service.serviceName" \
+            && echo "  ✓ '$SERVICIO' encendido" \
+            || echo "  ✗ No se pudo encender '$SERVICIO' (puede que no exista aún)"
+          done
+          echo "=== ECS: todos los servicios escalados a 1 ==="
+
+      # ── Lambdas: eliminar límite de concurrencia reservada ────────────────
+      - name: Restaurar concurrencia de Lambdas
+        run: |
+          LAMBDAS=(
+            "sward-lambda-interacciones"
+            "sward-lambda-alertas"
+            "sward-lambda-moodle-sync"
+            "sward-lambda-recursos"
+          )
+
+          echo "=== Restaurando concurrencia de Lambdas (eliminando límite) ==="
+          for LAMBDA in "${LAMBDAS[@]}"; do
+            echo "→ Eliminando límite de concurrencia de '$LAMBDA'..."
+            aws lambda delete-function-concurrency \
+              --function-name "$LAMBDA" \
+              --no-cli-pager \
+            && echo "  ✓ '$LAMBDA' restaurada (sin límite de concurrencia)" \
+            || echo "  ✗ No se pudo restaurar '$LAMBDA' (puede que no exista aún)"
+          done
+          echo "=== Lambdas: concurrencia restaurada en todas ==="
+
+      # ── Resumen final ─────────────────────────────────────────────────────
+      - name: Resumen de encendido
+        run: |
+          echo "============================================"
+          echo "  INFRAESTRUCTURA SWARD — ENCENDIDA"
+          echo "============================================"
+          echo ""
+          echo "RDS — instancias iniciadas (prefijo 'sward'):"
+          aws rds describe-db-instances \
+            --query "DBInstances[?contains(DBInstanceIdentifier,'sward')].[DBInstanceIdentifier,DBInstanceStatus]" \
+            --output table || true
+          echo ""
+          echo "ECS (cluster sward-cluster) — desired-count = 1:"
+          echo "  • usuarios"
+          echo "  • integracion-lms"
+          echo "  • trazabilidad"
+          echo "  • cursos-recursos"
+          echo "  • recomendacion"
+          echo "  • xai"
+          echo ""
+          echo "Lambdas — concurrencia sin límite:"
+          echo "  • sward-lambda-interacciones"
+          echo "  • sward-lambda-alertas"
+          echo "  • sward-lambda-moodle-sync"
+          echo "  • sward-lambda-recursos"
+          echo ""
+          echo "Ejecutado por: ${{ github.actor }}"
+          echo "Fecha:         $(date -u '+%Y-%m-%d %H:%M:%S UTC')"

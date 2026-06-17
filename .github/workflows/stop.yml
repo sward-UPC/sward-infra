@@ -1,0 +1,132 @@
+name: Apagar infraestructura (Stop)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stop:
+    name: Apagar ECS, RDS y Lambdas
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ── ECS: escalar todos los servicios a 0 ──────────────────────────────
+      - name: Escalar servicios ECS a 0
+        run: |
+          CLUSTER="sward-cluster"
+          SERVICIOS=(
+            "usuarios"
+            "integracion-lms"
+            "trazabilidad"
+            "cursos-recursos"
+            "recomendacion"
+            "xai"
+          )
+
+          echo "=== Apagando servicios ECS en cluster '$CLUSTER' ==="
+          for SERVICIO in "${SERVICIOS[@]}"; do
+            echo "→ Escalando '$SERVICIO' a 0 tareas..."
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$SERVICIO" \
+              --desired-count 0 \
+              --no-cli-pager \
+              --output text \
+              --query "service.serviceName" \
+            && echo "  ✓ '$SERVICIO' apagado" \
+            || echo "  ✗ No se pudo apagar '$SERVICIO' (puede que no exista aún)"
+          done
+          echo "=== ECS: todos los servicios escalados a 0 ==="
+
+      # ── RDS: detener todas las instancias sward ───────────────────────────
+      - name: Detener instancias RDS
+        run: |
+          echo "=== Descubriendo instancias RDS con prefijo 'sward' ==="
+          INSTANCIAS=$(aws rds describe-db-instances \
+            --query "DBInstances[?contains(DBInstanceIdentifier,'sward')].DBInstanceIdentifier" \
+            --output text)
+
+          if [ -z "$INSTANCIAS" ]; then
+            echo "No se encontraron instancias RDS con prefijo 'sward'."
+          else
+            for INSTANCIA in $INSTANCIAS; do
+              ESTADO=$(aws rds describe-db-instances \
+                --db-instance-identifier "$INSTANCIA" \
+                --query "DBInstances[0].DBInstanceStatus" \
+                --output text)
+              echo "→ Instancia '$INSTANCIA' — estado actual: $ESTADO"
+
+              if [ "$ESTADO" = "available" ]; then
+                aws rds stop-db-instance \
+                  --db-instance-identifier "$INSTANCIA" \
+                  --no-cli-pager \
+                  --output text \
+                  --query "DBInstance.DBInstanceStatus" \
+                && echo "  ✓ '$INSTANCIA' detenida correctamente"
+              else
+                echo "  ↷ '$INSTANCIA' no está en estado 'available' ($ESTADO), se omite"
+              fi
+            done
+          fi
+          echo "=== RDS: proceso de detención completado ==="
+
+      # ── Lambdas: establecer concurrencia reservada a 0 ───────────────────
+      - name: Poner Lambdas en concurrencia 0
+        run: |
+          LAMBDAS=(
+            "sward-lambda-interacciones"
+            "sward-lambda-alertas"
+            "sward-lambda-moodle-sync"
+            "sward-lambda-recursos"
+          )
+
+          echo "=== Deshabilitando Lambdas (concurrencia reservada = 0) ==="
+          for LAMBDA in "${LAMBDAS[@]}"; do
+            echo "→ Poniendo '$LAMBDA' en concurrencia 0..."
+            aws lambda put-function-concurrency \
+              --function-name "$LAMBDA" \
+              --reserved-concurrent-executions 0 \
+              --no-cli-pager \
+              --output text \
+              --query "ReservedConcurrentExecutions" \
+            && echo "  ✓ '$LAMBDA' deshabilitada" \
+            || echo "  ✗ No se pudo deshabilitar '$LAMBDA' (puede que no exista aún)"
+          done
+          echo "=== Lambdas: todas con concurrencia reservada = 0 ==="
+
+      # ── Resumen final ─────────────────────────────────────────────────────
+      - name: Resumen de apagado
+        run: |
+          echo "============================================"
+          echo "  INFRAESTRUCTURA SWARD — APAGADA"
+          echo "============================================"
+          echo ""
+          echo "ECS (cluster sward-cluster) — desired-count = 0:"
+          echo "  • usuarios"
+          echo "  • integracion-lms"
+          echo "  • trazabilidad"
+          echo "  • cursos-recursos"
+          echo "  • recomendacion"
+          echo "  • xai"
+          echo ""
+          echo "RDS — instancias detenidas (prefijo 'sward'):"
+          aws rds describe-db-instances \
+            --query "DBInstances[?contains(DBInstanceIdentifier,'sward')].[DBInstanceIdentifier,DBInstanceStatus]" \
+            --output table || true
+          echo ""
+          echo "Lambdas — concurrencia reservada = 0:"
+          echo "  • sward-lambda-interacciones"
+          echo "  • sward-lambda-alertas"
+          echo "  • sward-lambda-moodle-sync"
+          echo "  • sward-lambda-recursos"
+          echo ""
+          echo "Ejecutado por: ${{ github.actor }}"
+          echo "Fecha:         $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
