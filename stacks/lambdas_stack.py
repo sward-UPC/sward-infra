@@ -41,6 +41,7 @@ class LambdasStack(Stack):
         db_instances: dict | None = None,
         db_credentials: dict | None = None,
         db_security_group: ec2.ISecurityGroup | None = None,
+        ecs_security_group: ec2.ISecurityGroup | None = None,
         recursos_bucket_name: str | None = None,
         **kwargs,
     ) -> None:
@@ -57,6 +58,19 @@ class LambdasStack(Stack):
             description="SG de las Lambda functions de SWARD",
             allow_all_outbound=True,
         )
+
+        # Permitir que las Lambdas se conecten a los servicios ECS vía Cloud Map.
+        if ecs_security_group is not None:
+            ec2.CfnSecurityGroupIngress(
+                self,
+                "EcsIngressFromLambda",
+                group_id=ecs_security_group.security_group_id,
+                ip_protocol="tcp",
+                from_port=8000,
+                to_port=8000,
+                source_security_group_id=self.lambda_security_group.security_group_id,
+                description="Lambda SWARD -> ECS services (Cloud Map port 8000)",
+            )
 
         # Permitir acceso a RDS desde las Lambdas.
         if db_security_group is not None:

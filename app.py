@@ -59,6 +59,7 @@ lambdas = LambdasStack(
     db_instances=database.instances,
     db_credentials=_db_credentials,
     db_security_group=database.security_group,
+    ecs_security_group=services.service_security_group,
     # Nombre literal del bucket (definido en StorageStack) para evitar un token
     # cruzado entre stacks en la notificación S3 -> lambda-recursos.
     recursos_bucket_name="sward-recursos-educativos",
@@ -73,6 +74,7 @@ services.add_dependency(secrets)
 services.add_dependency(database)
 services.add_dependency(cache)
 lambdas.add_dependency(database)
+lambdas.add_dependency(services)
 # Nota: no se declara lambdas.add_dependency(storage) porque la notificación
 # S3 -> lambda-recursos hace que StorageStack dependa de LambdasStack (la
 # dependencia fluye en sentido inverso, gestionada por CDK automáticamente).
