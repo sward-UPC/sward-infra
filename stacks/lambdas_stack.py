@@ -69,7 +69,7 @@ class LambdasStack(Stack):
                 from_port=8000,
                 to_port=8000,
                 source_security_group_id=self.lambda_security_group.security_group_id,
-                description="Lambda SWARD -> ECS services (Cloud Map port 8000)",
+                description="Lambda SWARD to ECS services port 8000",
             )
 
         # Permitir acceso a RDS desde las Lambdas.
