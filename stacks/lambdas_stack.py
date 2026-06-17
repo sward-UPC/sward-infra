@@ -299,6 +299,7 @@ class LambdasStack(Stack):
                 targets.SqsQueue(
                     self.interacciones_queue,
                     dead_letter_queue=self.interacciones_dlq,
+                    message=events.RuleTargetInput.from_event_path("$.detail"),
                 )
             ],
         )

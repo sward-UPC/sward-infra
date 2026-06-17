@@ -266,6 +266,9 @@ class ServicesStack(Stack):
                 secret_env["MOODLE_TOKEN"] = ecs.Secret.from_secrets_manager(
                     moodle_token, "moodle_token"
                 )
+                secret_env["MOODLE_BASE_URL"] = ecs.Secret.from_secrets_manager(
+                    moodle_token, "moodle_base_url"
+                )
 
             # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
             # El container la recibe como AUTHORIZED_<CALLER>_KEY en texto plano
