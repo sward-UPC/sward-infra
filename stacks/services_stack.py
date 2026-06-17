@@ -246,6 +246,7 @@ class ServicesStack(Stack):
                 "usuarios",
                 "trazabilidad",
                 "cursos-recursos",
+                "recomendacion",
             ):
                 task_def.task_role.add_to_principal_policy(
                     iam.PolicyStatement(
