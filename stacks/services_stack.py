@@ -215,6 +215,7 @@ class ServicesStack(Stack):
                 "ENVIRONMENT": "production",
                 "AWS_REGION": self.region,
                 "EVENTBRIDGE_BUS_NAME": event_bus_name,
+                "CORS_ALLOWED_ORIGINS": '["https://sward-upc.github.io","http://localhost:5173"]',
             }
             # URLs internas de los demás microservicios vía Cloud Map.
             for other in SERVICES:
