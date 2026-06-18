@@ -57,7 +57,7 @@ AUTHORIZED_CALLERS: dict[str, list[str]] = {
     "cursos-recursos": ["recomendacion"],
     "xai": ["recomendacion"],
     "recomendacion": [],  # solo JWT de usuarios finales
-    "usuarios": [],  # solo JWT de usuarios finales
+    "usuarios": ["trazabilidad"],  # /internal/users/by-ids para enriquecer dashboard
 }
 
 
