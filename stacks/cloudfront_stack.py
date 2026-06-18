@@ -93,7 +93,10 @@ class CloudfrontStack(Stack):
                     "OPTIONS",
                     "HEAD",
                 ],
-                access_control_allow_origins=["https://sward-upc.github.io", "http://localhost:5173"],
+                access_control_allow_origins=[
+                    "https://sward-upc.github.io",
+                    "http://localhost:5173",
+                ],
                 access_control_max_age=Duration.seconds(600),
                 origin_override=True,
             ),
