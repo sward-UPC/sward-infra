@@ -39,17 +39,35 @@ class CloudfrontStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Reescribe /api/v1/<path> → /<path> antes de llegar al ALB.
+        # Reescribe /api/v1/<path> → /<path> y resuelve preflight CORS en el edge.
+        # El preflight OPTIONS nunca llega al backend (evita el 400 de Starlette
+        # cuando el origin no está en su lista de allow_origins).
         strip_prefix_fn = cloudfront.Function(
             self,
             "StripApiV1Prefix",
             function_name="sward-strip-api-v1",
             code=cloudfront.FunctionCode.from_inline(
-                "function handler(event) {"
+                "var ALLOWED_ORIGINS = ['https://sward-upc.github.io', 'http://localhost:5173'];"
+                "\nfunction handler(event) {"
                 "\n    var request = event.request;"
                 "\n    var uri = request.uri;"
                 "\n    if (uri === '/api/v1' || uri.startsWith('/api/v1/')) {"
                 "\n        request.uri = uri.slice('/api/v1'.length) || '/';"
+                "\n    }"
+                "\n    if (request.method === 'OPTIONS') {"
+                "\n        var origin = (request.headers['origin'] || {}).value || '';"
+                "\n        if (ALLOWED_ORIGINS.indexOf(origin) !== -1) {"
+                "\n            return {"
+                "\n                statusCode: 204,"
+                "\n                statusDescription: 'No Content',"
+                "\n                headers: {"
+                "\n                    'access-control-allow-origin': { value: origin },"
+                "\n                    'access-control-allow-methods': { value: 'GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD' },"
+                "\n                    'access-control-allow-headers': { value: 'Authorization,Content-Type' },"
+                "\n                    'access-control-max-age': { value: '600' }"
+                "\n                }"
+                "\n            };"
+                "\n        }"
                 "\n    }"
                 "\n    return request;"
                 "\n}"
@@ -75,7 +93,7 @@ class CloudfrontStack(Stack):
                     "OPTIONS",
                     "HEAD",
                 ],
-                access_control_allow_origins=["https://sward-upc.github.io"],
+                access_control_allow_origins=["https://sward-upc.github.io", "http://localhost:5173"],
                 access_control_max_age=Duration.seconds(600),
                 origin_override=True,
             ),
