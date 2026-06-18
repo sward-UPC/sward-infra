@@ -285,6 +285,11 @@ class LambdasStack(Stack):
         self.functions["recursos"] = fn_recursos
 
         # ----------------------- EventBridge rules -----------------------
+        # IMPORTANTE: Source y DetailType deben coincidir exactamente con lo que
+        # publica sward_shared.adapters.eventbridge:
+        #   Source    = service_name (ej. "sward-ms-trazabilidad")
+        #   DetailType = event.event_type (ej. "sward.trazabilidad.InteraccionRegistrada")
+
         # InteraccionRegistrada -> SQS -> lambda-interacciones
         events.Rule(
             self,
@@ -292,8 +297,8 @@ class LambdasStack(Stack):
             rule_name="sward-interaccion-registrada",
             event_bus=self.event_bus,
             event_pattern=events.EventPattern(
-                source=["sward.trazabilidad"],
-                detail_type=["InteraccionRegistrada"],
+                source=["sward-ms-trazabilidad"],
+                detail_type=["sward.trazabilidad.InteraccionRegistrada"],
             ),
             targets=[
                 targets.SqsQueue(
@@ -311,8 +316,8 @@ class LambdasStack(Stack):
             rule_name="sward-recomendacion-generada",
             event_bus=self.event_bus,
             event_pattern=events.EventPattern(
-                source=["sward.recomendacion"],
-                detail_type=["RecomendacionGenerada"],
+                source=["sward-ms-recomendacion"],
+                detail_type=["sward.recomendacion.RecomendacionGenerada"],
             ),
             targets=[targets.LambdaFunction(fn_alertas)],
         )
