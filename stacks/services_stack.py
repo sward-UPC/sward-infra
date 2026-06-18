@@ -98,6 +98,7 @@ class ServicesStack(Stack):
         jwt_secret: secretsmanager.ISecret | None = None,
         service_keys: dict | None = None,
         moodle_token: secretsmanager.ISecret | None = None,
+        admin_seed_secret: secretsmanager.ISecret | None = None,
         redis_endpoint: str | None = None,
         event_bus_name: str = "sward-event-bus",
         models_bucket: s3.IBucket | None = None,
@@ -286,6 +287,10 @@ class ServicesStack(Stack):
                 )
                 secret_env["MOODLE_BASE_URL"] = ecs.Secret.from_secrets_manager(
                     moodle_token, "moodle_base_url"
+                )
+            if name == "usuarios" and admin_seed_secret is not None:
+                secret_env["ADMIN_SEED_PASSWORD"] = ecs.Secret.from_secrets_manager(
+                    admin_seed_secret, "admin_seed_password"
                 )
 
             # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
