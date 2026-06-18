@@ -317,6 +317,22 @@ class LambdasStack(Stack):
             targets=[targets.LambdaFunction(fn_alertas)],
         )
 
+        # RiesgoActualizado -> lambda-alertas (genera alertas sin depender del
+        # motor de recomendación). El patrón coincide con lo que emite realmente
+        # el EventBridgeAdapter de ms-trazabilidad: Source = nombre del servicio,
+        # DetailType = event_type completo (ver sward_shared.adapters.eventbridge).
+        events.Rule(
+            self,
+            "RuleRiesgoActualizado",
+            rule_name="sward-riesgo-actualizado",
+            event_bus=self.event_bus,
+            event_pattern=events.EventPattern(
+                source=["sward-ms-trazabilidad"],
+                detail_type=["sward.trazabilidad.RiesgoActualizado"],
+            ),
+            targets=[targets.LambdaFunction(fn_alertas)],
+        )
+
         # Schedule cada 15 min -> lambda-moodle-sync
         events.Rule(
             self,
