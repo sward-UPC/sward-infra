@@ -47,6 +47,7 @@ services = ServicesStack(
     jwt_secret=secrets.jwt_secret,
     service_keys=secrets.service_keys,
     moodle_token=secrets.moodle_token,
+    admin_seed_secret=secrets.admin_seed_secret,
     redis_endpoint=cache.redis_endpoint,
     models_bucket=storage.models_bucket,
     env=env,
