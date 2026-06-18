@@ -82,3 +82,22 @@ class SecretsStack(Stack):
             ),
             removal_policy=RemovalPolicy.DESTROY,
         )
+
+        # Contraseña del usuario administrador inicial (ms-usuarios seed).
+        # Rellenar manualmente en Secrets Manager tras el primer deploy:
+        #   aws secretsmanager put-secret-value \
+        #     --secret-id sward/admin-seed \
+        #     --secret-string '{"admin_seed_password":"<password>"}'
+        self.admin_seed_secret = secrets.Secret(
+            self,
+            "AdminSeedSecret",
+            secret_name="sward/admin-seed",
+            description="Contraseña del admin inicial de SWARD (rellenar manualmente: admin_seed_password)",
+            generate_secret_string=secrets.SecretStringGenerator(
+                generate_string_key="admin_seed_password",
+                secret_string_template="{}",
+                password_length=24,
+                exclude_punctuation=False,
+            ),
+            removal_policy=RemovalPolicy.DESTROY,
+        )
