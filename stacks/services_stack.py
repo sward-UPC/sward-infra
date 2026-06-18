@@ -53,7 +53,11 @@ CONTAINER_PORT = 8000
 # X-Service-Key. Si el set está vacío el middleware pasa todo (modo desarrollo).
 AUTHORIZED_CALLERS: dict[str, list[str]] = {
     "integracion-lms": ["trazabilidad", "usuarios"],  # usuarios: lookup en registro
-    "trazabilidad": ["recomendacion", "integracion-lms"],
+    "trazabilidad": [
+        "recomendacion",
+        "integracion-lms",
+        "usuarios",
+    ],  # usuarios: KPI dominio plataforma
     "cursos-recursos": ["recomendacion"],
     "xai": ["recomendacion"],
     "recomendacion": [],  # solo JWT de usuarios finales
