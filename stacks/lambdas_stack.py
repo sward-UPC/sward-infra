@@ -1,3 +1,5 @@
+import json
+
 from aws_cdk import (
     Stack,
     Duration,
@@ -12,6 +14,7 @@ from aws_cdk import (
     aws_s3_notifications as s3n,
     aws_secretsmanager as secretsmanager,
     aws_sqs as sqs,
+    custom_resources as cr,
 )
 from constructs import Construct
 
@@ -128,7 +131,61 @@ class LambdasStack(Stack):
                 f"EcrLambda{name.replace('-', '').title()}",
                 f"sward/lambda-{name}",
             )
+            _allow_lambda_service_pull(name, repo)
             return lambda_.DockerImageCode.from_ecr(repo, tag_or_digest="latest"), repo
+
+        def _allow_lambda_service_pull(name: str, repo: ecr.IRepository) -> None:
+            """Aplica la repository policy que permite al servicio Lambda hacer
+            pull de la imagen de contenedor.
+
+            Las Lambdas de imagen las descarga el **servicio** lambda.amazonaws.com
+            (no el rol de ejecución), por lo que requieren una *resource policy*
+            en el repo ECR. Como los repos se importan con from_repository_name,
+            CDK no puede setearla vía grant_pull (addToResourcePolicy es no-op en
+            repos importados); se aplica con un Custom Resource (ecr:SetRepositoryPolicy).
+            Sin esto la función queda Inactive: "does not have permission to
+            access the specified image".
+            """
+            policy_text = json.dumps(
+                {
+                    "Version": "2008-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "LambdaECRImageRetrievalPolicy",
+                            "Effect": "Allow",
+                            "Principal": {"Service": "lambda.amazonaws.com"},
+                            "Action": [
+                                "ecr:BatchGetImage",
+                                "ecr:GetDownloadUrlForLayer",
+                            ],
+                            "Condition": {
+                                "StringLike": {
+                                    "aws:sourceArn": f"arn:aws:lambda:{self.region}:{self.account}:function:sward-lambda-*"
+                                }
+                            },
+                        }
+                    ],
+                }
+            )
+            cid = name.replace("-", "").title()
+            sdk_call = cr.AwsSdkCall(
+                service="ECR",
+                action="setRepositoryPolicy",
+                parameters={
+                    "repositoryName": f"sward/lambda-{name}",
+                    "policyText": policy_text,
+                },
+                physical_resource_id=cr.PhysicalResourceId.of(f"ecr-policy-{name}"),
+            )
+            cr.AwsCustomResource(
+                self,
+                f"EcrPolicy{cid}",
+                on_create=sdk_call,
+                on_update=sdk_call,
+                policy=cr.AwsCustomResourcePolicy.from_sdk_calls(
+                    resources=[repo.repository_arn]
+                ),
+            )
 
         def _grant_ecr_pull(
             fn: lambda_.DockerImageFunction, repo: ecr.IRepository
