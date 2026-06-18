@@ -58,7 +58,10 @@ AUTHORIZED_CALLERS: dict[str, list[str]] = {
         "integracion-lms",
         "usuarios",
     ],  # usuarios: KPI dominio plataforma
-    "cursos-recursos": ["recomendacion"],
+    "cursos-recursos": [
+        "recomendacion",
+        "integracion-lms",
+    ],  # integracion-lms: sync del catálogo de cursos
     "xai": ["recomendacion"],
     "recomendacion": [],  # solo JWT de usuarios finales
     "usuarios": ["trazabilidad"],  # /internal/users/by-ids para enriquecer dashboard
