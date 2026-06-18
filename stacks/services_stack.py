@@ -242,6 +242,11 @@ class ServicesStack(Stack):
             if name == "integracion-lms":
                 environment["MOODLE_MOCK"] = "false"
 
+            # Modelo SAKT que descarga ms-recomendacion (cambiable sin rebuild de
+            # imagen). Apunta al modelo entrenado sobre conceptos de Moodle.
+            if name == "recomendacion":
+                environment["SAKT_MODEL_S3_KEY"] = "sakt/moodle/model.pth"
+
             # Todos los servicios con event publisher necesitan PutEvents.
             if name in (
                 "integracion-lms",
