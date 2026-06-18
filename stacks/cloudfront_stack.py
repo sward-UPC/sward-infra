@@ -1,12 +1,13 @@
 from aws_cdk import (
     CfnOutput,
-    Duration,
     Stack,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     aws_elasticloadbalancingv2 as elbv2,
 )
 from constructs import Construct
+
+_CORS_ORIGINS_JS = "['https://sward-upc.github.io','http://localhost:5173']"
 
 
 class CloudfrontStack(Stack):
@@ -15,19 +16,13 @@ class CloudfrontStack(Stack):
     Flujo:
       cliente ──HTTPS──► CloudFront (*.cloudfront.net) ──HTTP──► ALB (interno AWS)
 
-    CloudFront termina TLS; la comunicación CloudFront→ALB es HTTP dentro de la
-    red de AWS (equivale a un túnel interno, no viaja por internet público).
-
-    Configuración:
-      * Cache deshabilitado — la API REST nunca debe cachearse.
-      * AllowedMethods.ALLOW_ALL — soporta GET/POST/PUT/DELETE/PATCH.
-      * ALL_VIEWER_EXCEPT_HOST_HEADER — reenvía todos los headers (incluido
-        Authorization con el JWT) excepto Host (para que ALB use su propio dominio).
-      * REDIRECT_TO_HTTPS — fuerza HTTPS en el viewer, HTTP en el origin.
-      * CloudFront Function (viewer-request) — reescribe /api/v1/* → /* para que
-        los microservicios no necesiten manejar el prefijo de versión.
-      * ResponseHeadersPolicy CORS — permite que el portal Scalar en GitHub Pages
-        haga fetch de los openapi.json sin tocar los microservicios.
+    CORS gestionado íntegramente con dos CloudFront Functions:
+      * viewer-request  — reescribe /api/v1/* → /* y resuelve preflights OPTIONS
+        directamente en el edge (204 + headers).
+      * viewer-response — inyecta Access-Control-Allow-Origin en todas las
+        respuestas reales que provienen del ALB.
+    Se eliminó el ResponseHeadersPolicy porque no aplica sus headers CORS a
+    respuestas generadas por Functions (FunctionGeneratedResponse).
     """
 
     def __init__(
@@ -39,67 +34,57 @@ class CloudfrontStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Reescribe /api/v1/<path> → /<path> y resuelve preflight CORS en el edge.
-        # El preflight OPTIONS nunca llega al backend (evita el 400 de Starlette
-        # cuando el origin no está en su lista de allow_origins).
-        strip_prefix_fn = cloudfront.Function(
+        # Viewer-request: strip /api/v1 prefix + manejar preflight OPTIONS en edge.
+        viewer_request_fn = cloudfront.Function(
             self,
-            "StripApiV1Prefix",
-            function_name="sward-strip-api-v1",
+            "ViewerRequestFn",
+            function_name="sward-viewer-request",
             code=cloudfront.FunctionCode.from_inline(
-                "var ALLOWED_ORIGINS = ['https://sward-upc.github.io', 'http://localhost:5173'];"
-                "\nfunction handler(event) {"
-                "\n    var request = event.request;"
-                "\n    var uri = request.uri;"
-                "\n    if (uri === '/api/v1' || uri.startsWith('/api/v1/')) {"
-                "\n        request.uri = uri.slice('/api/v1'.length) || '/';"
-                "\n    }"
-                "\n    if (request.method === 'OPTIONS') {"
-                "\n        var origin = (request.headers['origin'] || {}).value || '';"
-                "\n        if (ALLOWED_ORIGINS.indexOf(origin) !== -1) {"
-                "\n            return {"
-                "\n                statusCode: 204,"
-                "\n                statusDescription: 'No Content',"
-                "\n                headers: {"
-                "\n                    'access-control-allow-origin': { value: origin },"
-                "\n                    'access-control-allow-methods': { value: 'GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD' },"
-                "\n                    'access-control-allow-headers': { value: 'Authorization,Content-Type' },"
-                "\n                    'access-control-max-age': { value: '600' }"
-                "\n                }"
-                "\n            };"
+                f"var ALLOWED={_CORS_ORIGINS_JS};"
+                "\nfunction handler(event){"
+                "\n  var req=event.request,uri=req.uri;"
+                "\n  if(uri==='/api/v1'||uri.startsWith('/api/v1/')){"
+                "\n    req.uri=uri.slice('/api/v1'.length)||'/';"
+                "\n  }"
+                "\n  if(req.method==='OPTIONS'){"
+                "\n    var orig=(req.headers['origin']||{}).value||'';"
+                "\n    if(ALLOWED.indexOf(orig)!==-1){"
+                "\n      return{"
+                "\n        statusCode:204,statusDescription:'No Content',"
+                "\n        headers:{"
+                "\n          'access-control-allow-origin':{value:orig},"
+                "\n          'access-control-allow-methods':{value:'GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD'},"
+                "\n          'access-control-allow-headers':{value:'authorization,content-type'},"
+                "\n          'access-control-max-age':{value:'600'},"
+                "\n          'vary':{value:'Origin'}"
                 "\n        }"
+                "\n      };"
                 "\n    }"
-                "\n    return request;"
+                "\n  }"
+                "\n  return req;"
                 "\n}"
             ),
             runtime=cloudfront.FunctionRuntime.JS_2_0,
         )
 
-        # CORS para el portal Scalar en GitHub Pages.
-        # Se gestiona aquí (gateway) para no modificar ningún microservicio.
-        cors_policy = cloudfront.ResponseHeadersPolicy(
+        # Viewer-response: inyecta CORS headers en respuestas reales del ALB.
+        viewer_response_fn = cloudfront.Function(
             self,
-            "SwardCorsPolicy",
-            response_headers_policy_name="sward-cors-api",
-            cors_behavior=cloudfront.ResponseHeadersCorsBehavior(
-                access_control_allow_credentials=False,
-                access_control_allow_headers=["*"],
-                access_control_allow_methods=[
-                    "GET",
-                    "POST",
-                    "PUT",
-                    "DELETE",
-                    "PATCH",
-                    "OPTIONS",
-                    "HEAD",
-                ],
-                access_control_allow_origins=[
-                    "https://sward-upc.github.io",
-                    "http://localhost:5173",
-                ],
-                access_control_max_age=Duration.seconds(600),
-                origin_override=True,
+            "ViewerResponseFn",
+            function_name="sward-viewer-response",
+            code=cloudfront.FunctionCode.from_inline(
+                f"var ALLOWED={_CORS_ORIGINS_JS};"
+                "\nfunction handler(event){"
+                "\n  var req=event.request,resp=event.response;"
+                "\n  var orig=(req.headers['origin']||{}).value||'';"
+                "\n  if(ALLOWED.indexOf(orig)!==-1){"
+                "\n    resp.headers['access-control-allow-origin']={value:orig};"
+                "\n    resp.headers['vary']={value:'Origin'};"
+                "\n  }"
+                "\n  return resp;"
+                "\n}"
             ),
+            runtime=cloudfront.FunctionRuntime.JS_2_0,
         )
 
         distribution = cloudfront.Distribution(
@@ -116,12 +101,15 @@ class CloudfrontStack(Stack):
                 cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-                response_headers_policy=cors_policy,
                 function_associations=[
                     cloudfront.FunctionAssociation(
-                        function=strip_prefix_fn,
+                        function=viewer_request_fn,
                         event_type=cloudfront.FunctionEventType.VIEWER_REQUEST,
-                    )
+                    ),
+                    cloudfront.FunctionAssociation(
+                        function=viewer_response_fn,
+                        event_type=cloudfront.FunctionEventType.VIEWER_RESPONSE,
+                    ),
                 ],
             ),
         )
