@@ -52,7 +52,7 @@ CONTAINER_PORT = 8000
 # que la recibe como env var AUTHORIZED_<CALLER>_KEY y la valida en el header
 # X-Service-Key. Si el set está vacío el middleware pasa todo (modo desarrollo).
 AUTHORIZED_CALLERS: dict[str, list[str]] = {
-    "integracion-lms": ["trazabilidad"],
+    "integracion-lms": ["trazabilidad", "usuarios"],  # usuarios: lookup en registro
     "trazabilidad": ["recomendacion", "integracion-lms"],
     "cursos-recursos": ["recomendacion"],
     "xai": ["recomendacion"],
@@ -242,6 +242,11 @@ class ServicesStack(Stack):
             if name == "integracion-lms":
                 environment["MOODLE_MOCK"] = "false"
 
+            # ms-usuarios consulta a integracion-lms en el registro real (rol,
+            # nombre y moodle_user_id vienen de Moodle). Sin esto cae al mock.
+            if name == "usuarios":
+                environment["USE_MOCK_LMS"] = "false"
+
             # Modelo SAKT que descarga ms-recomendacion (cambiable sin rebuild de
             # imagen). Apunta al modelo entrenado sobre conceptos de Moodle.
             if name == "recomendacion":
@@ -287,6 +292,12 @@ class ServicesStack(Stack):
                 secret_env["SERVICE_KEY"] = ecs.Secret.from_secrets_manager(
                     sk, "service_key"
                 )
+                # ms-usuarios usa su propia SERVICE_KEY como X-Service-Key al
+                # llamar a integracion-lms (que la valida vía AUTHORIZED_USUARIOS_KEY).
+                if name == "usuarios":
+                    secret_env["LMS_SERVICE_KEY"] = ecs.Secret.from_secrets_manager(
+                        sk, "service_key"
+                    )
             if name == "integracion-lms" and moodle_token is not None:
                 secret_env["MOODLE_TOKEN"] = ecs.Secret.from_secrets_manager(
                     moodle_token, "moodle_token"
