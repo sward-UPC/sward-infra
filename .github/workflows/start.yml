@@ -82,6 +82,7 @@ jobs:
             "cursos-recursos"
             "recomendacion"
             "xai"
+            "redis"
           )
 
           echo "=== Encendiendo servicios ECS en cluster '$CLUSTER' ==="
@@ -139,6 +140,7 @@ jobs:
           echo "  • cursos-recursos"
           echo "  • recomendacion"
           echo "  • xai"
+          echo "  • redis"
           echo ""
           echo "Lambdas — concurrencia sin límite:"
           echo "  • sward-lambda-interacciones"
