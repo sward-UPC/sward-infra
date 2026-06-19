@@ -2,6 +2,8 @@ name: Apagar infraestructura (Stop)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"  # 00:00 hora Perú (UTC-5) todos los días
 
 jobs:
   stop:
