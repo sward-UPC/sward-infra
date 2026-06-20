@@ -21,6 +21,11 @@ env = cdk.Environment(
     or os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
 )
 
+# Modo dev: 1 RDS compartida + Fargate Spot (~$50/mes corriendo vs ~$150/mes prod).
+# Activar con: cdk deploy -c dev=true
+# Prod (default): 6 RDS separadas + Fargate on-demand.
+is_dev = app.node.try_get_context("dev") == "true"
+
 # Orden de dependencias: networking -> ecr/secrets/storage -> database
 # -> services -> lambdas.
 networking = NetworkingStack(app, "SwardNetworking", env=env)
@@ -29,7 +34,7 @@ ecr = EcrStack(app, "SwardEcr", env=env)
 secrets = SecretsStack(app, "SwardSecrets", env=env)
 storage = StorageStack(app, "SwardStorage", env=env)
 
-database = DatabaseStack(app, "SwardDatabase", vpc=networking.vpc, env=env)
+database = DatabaseStack(app, "SwardDatabase", vpc=networking.vpc, is_dev=is_dev, env=env)
 
 _db_credentials = {name: inst.secret for name, inst in database.instances.items()}
 
@@ -45,6 +50,7 @@ services = ServicesStack(
     moodle_token=secrets.moodle_token,
     admin_seed_secret=secrets.admin_seed_secret,
     models_bucket=storage.models_bucket,
+    is_dev=is_dev,
     env=env,
 )
 

@@ -106,6 +106,7 @@ class ServicesStack(Stack):
         admin_seed_secret: secretsmanager.ISecret | None = None,
         event_bus_name: str = "sward-event-bus",
         models_bucket: s3.IBucket | None = None,
+        is_dev: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -119,6 +120,8 @@ class ServicesStack(Stack):
             vpc=vpc,
             cluster_name="sward-cluster",
             container_insights_v2=ecs.ContainerInsights.ENABLED,
+            # enable_fargate_capacity_providers requerido para poder usar FARGATE_SPOT.
+            enable_fargate_capacity_providers=True,
         )
         self.namespace = self.cluster.add_default_cloud_map_namespace(
             name="sward.local",
@@ -230,6 +233,16 @@ class ServicesStack(Stack):
                 dns_record_type=servicediscovery.DnsRecordType.A,
                 dns_ttl=Duration.seconds(30),
             ),
+            capacity_provider_strategies=(
+                [
+                    ecs.CapacityProviderStrategy(
+                        capacity_provider="FARGATE_SPOT",
+                        weight=1,
+                    )
+                ]
+                if is_dev
+                else None
+            ),
         )
 
         self.services: dict[str, ecs.FargateService] = {}
@@ -268,7 +281,11 @@ class ServicesStack(Stack):
             if db is not None:
                 environment["DATABASE_HOST"] = db.db_instance_endpoint_address
                 environment["DATABASE_PORT"] = db.db_instance_endpoint_port
-                environment["DATABASE_NAME"] = f"sward_{name.replace('-', '_')}"
+                # Dev: 1 RDS compartida → todos apuntan a la misma database.
+                # Prod: cada servicio tiene su propia database.
+                environment["DATABASE_NAME"] = (
+                    "sward" if is_dev else f"sward_{name.replace('-', '_')}"
+                )
 
             # Redis en ECS, accesible vía Cloud Map: redis.sward.local:6379
             if name in ("xai", "usuarios"):
@@ -393,6 +410,18 @@ class ServicesStack(Stack):
                     name=name,
                     dns_record_type=servicediscovery.DnsRecordType.A,
                     dns_ttl=Duration.seconds(30),
+                ),
+                # Dev: Fargate Spot (~40% del precio on-demand).
+                # Prod: on-demand (capacity_provider_strategies=None → FARGATE por defecto).
+                capacity_provider_strategies=(
+                    [
+                        ecs.CapacityProviderStrategy(
+                            capacity_provider="FARGATE_SPOT",
+                            weight=1,
+                        )
+                    ]
+                    if is_dev
+                    else None
                 ),
             )
             self.services[name] = service
