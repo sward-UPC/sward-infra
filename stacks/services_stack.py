@@ -114,14 +114,16 @@ class ServicesStack(Stack):
         service_keys = service_keys or {}
 
         # --- Cluster + namespace de Cloud Map para service discovery interno ---
+        # NOTA: NO usamos enable_fargate_capacity_providers=True porque genera un
+        # custom resource de CDK que bloquea la eliminación del cluster en rollbacks.
+        # FARGATE y FARGATE_SPOT están disponibles en todos los clusters por defecto
+        # en AWS, así que capacity_provider_strategies en cada servicio funciona igual.
         self.cluster = ecs.Cluster(
             self,
             "SwardCluster",
             vpc=vpc,
             cluster_name="sward-cluster",
             container_insights_v2=ecs.ContainerInsights.ENABLED,
-            # enable_fargate_capacity_providers requerido para poder usar FARGATE_SPOT.
-            enable_fargate_capacity_providers=True,
         )
         self.namespace = self.cluster.add_default_cloud_map_namespace(
             name="sward.local",
@@ -214,7 +216,7 @@ class ServicesStack(Stack):
         redis_container.add_port_mappings(
             ecs.PortMapping(container_port=6379, protocol=ecs.Protocol.TCP)
         )
-        ecs.FargateService(
+        redis_service = ecs.FargateService(
             self,
             "ServiceRedis",
             cluster=self.cluster,
@@ -422,6 +424,9 @@ class ServicesStack(Stack):
                     else None
                 ),
             )
+            # Redis debe existir antes que los microservicios intenten arrancar
+            # para que redis.sward.local resuelva vía Cloud Map desde el inicio.
+            service.node.add_dependency(redis_service)
             self.services[name] = service
 
             # ---- Target group + regla de path-based routing en el ALB ----
