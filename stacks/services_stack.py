@@ -209,9 +209,7 @@ class ServicesStack(Stack):
             image=ecs.ContainerImage.from_registry(
                 "public.ecr.aws/docker/library/redis:7-alpine"
             ),
-            logging=ecs.LogDriver.aws_logs(
-                stream_prefix="redis", log_group=log_group
-            ),
+            logging=ecs.LogDriver.aws_logs(stream_prefix="redis", log_group=log_group),
         )
         redis_container.add_port_mappings(
             ecs.PortMapping(container_port=6379, protocol=ecs.Protocol.TCP)

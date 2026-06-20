@@ -33,7 +33,9 @@ ecr = EcrStack(app, "SwardEcr", env=env)
 secrets = SecretsStack(app, "SwardSecrets", env=env)
 storage = StorageStack(app, "SwardStorage", env=env)
 
-database = DatabaseStack(app, "SwardDatabase", vpc=networking.vpc, is_dev=is_dev, env=env)
+database = DatabaseStack(
+    app, "SwardDatabase", vpc=networking.vpc, is_dev=is_dev, env=env
+)
 
 _db_credentials = {name: inst.secret for name, inst in database.instances.items()}
 
