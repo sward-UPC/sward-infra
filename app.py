@@ -21,10 +21,9 @@ env = cdk.Environment(
     or os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
 )
 
-# Modo dev: 1 RDS compartida + Fargate Spot (~$50/mes corriendo vs ~$150/mes prod).
-# Activar con: cdk deploy -c dev=true
-# Prod (default): 6 RDS separadas + Fargate on-demand.
-is_dev = app.node.try_get_context("dev") == "true"
+# Por defecto: modo dev (1 RDS compartida + Fargate Spot, ~$50/mes corriendo).
+# Para prod completo: cdk deploy -c prod=true  (6 RDS separadas + Fargate on-demand).
+is_dev = app.node.try_get_context("prod") != "true"
 
 # Orden de dependencias: networking -> ecr/secrets/storage -> database
 # -> services -> lambdas.
