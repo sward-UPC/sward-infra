@@ -4,6 +4,16 @@ on:
   push:
     branches:
       - deploy
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de despliegue"
+        required: false
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
 
 jobs:
   diff:
@@ -38,11 +48,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Calcular flags CDK
+        id: flags
+        run: |
+          MODO="${{ github.event.inputs.modo || 'dev' }}"
+          if [ "$MODO" = "prod" ]; then
+            echo "cdk_flags=-c prod=true" >> $GITHUB_OUTPUT
+          else
+            echo "cdk_flags=" >> $GITHUB_OUTPUT
+          fi
+          echo "Modo seleccionado: $MODO"
+
       - name: CDK Synth
-        run: cdk synth
+        run: cdk synth ${{ steps.flags.outputs.cdk_flags }}
 
       - name: CDK Diff (ver qué cambia)
-        run: cdk diff --all 2>&1 || true
+        run: cdk diff --all ${{ steps.flags.outputs.cdk_flags }} 2>&1 || true
 
   deploy:
     name: CDK Deploy (requiere aprobación)
@@ -78,5 +99,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Calcular flags CDK
+        id: flags
+        run: |
+          MODO="${{ github.event.inputs.modo || 'dev' }}"
+          if [ "$MODO" = "prod" ]; then
+            echo "cdk_flags=-c prod=true" >> $GITHUB_OUTPUT
+          else
+            echo "cdk_flags=" >> $GITHUB_OUTPUT
+          fi
+          echo "Modo seleccionado: $MODO"
+
       - name: CDK Deploy
-        run: cdk deploy --all --require-approval never
+        run: cdk deploy --all --require-approval never ${{ steps.flags.outputs.cdk_flags }}
