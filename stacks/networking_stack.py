@@ -12,7 +12,7 @@ class NetworkingStack(Stack):
         # del NAT Instance (las tasks ECS no pueden alcanzar internet ni CloudWatch).
         nat_provider = ec2.NatProvider.instance_v2(
             instance_type=ec2.InstanceType("t3.nano"),
-            default_allowed_traffic=ec2.NatTrafficDirection.ALL,
+            default_allowed_traffic=ec2.NatTrafficDirection.INBOUND_AND_OUTBOUND,
         )
 
         self.vpc = ec2.Vpc(
