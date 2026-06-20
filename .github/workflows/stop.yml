@@ -2,6 +2,8 @@ name: Apagar infraestructura (Stop)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"  # 00:00 hora Perú (UTC-5) todos los días
 
 jobs:
   stop:
@@ -29,6 +31,7 @@ jobs:
             "cursos-recursos"
             "recomendacion"
             "xai"
+            "redis"
           )
 
           echo "=== Apagando servicios ECS en cluster '$CLUSTER' ==="
@@ -116,6 +119,7 @@ jobs:
           echo "  • cursos-recursos"
           echo "  • recomendacion"
           echo "  • xai"
+          echo "  • redis"
           echo ""
           echo "RDS — instancias detenidas (prefijo 'sward'):"
           aws rds describe-db-instances \

@@ -17,25 +17,30 @@ MICROSERVICES = [
 
 
 class DatabaseStack(Stack):
-    """6× RDS PostgreSQL, una instancia por microservicio.
+    """RDS PostgreSQL para los 6 microservicios SWARD.
 
-    Cada instancia:
-      * vive en las subnets aisladas de la VPC,
-      * genera su credencial (usuario/clave) en Secrets Manager
-        (``rds.Credentials.from_generated_secret``),
-      * comparte un security group común al que ``ServicesStack`` abre ingress
-        desde el SG de ECS vía ``allow_ingress_from``.
+    Modo prod (is_dev=False, por defecto):
+      6× RDS t3.micro — aislamiento completo, 1 instancia + 1 credencial por servicio.
 
-    Expone ``instances`` y ``credentials`` (secret por servicio) para que
-    ServicesStack construya el ``DATABASE_URL`` de cada task definition.
+    Modo dev (is_dev=True, cdk deploy -c dev=true):
+      1× RDS t3.micro compartida — todos los servicios usan DATABASE_NAME="sward"
+      y las mismas credenciales. Cada servicio crea sus propias tablas vía
+      SQLAlchemy create_all(). Ahorro: ~$60/mes cuando está corriendo.
     """
 
     def __init__(
-        self, scope: Construct, construct_id: str, vpc: ec2.Vpc, **kwargs
+        self,
+        scope: Construct,
+        construct_id: str,
+        vpc: ec2.Vpc,
+        *,
+        is_dev: bool = False,
+        **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         self.port = 5432
+        self.is_dev = is_dev
 
         # Security group compartido por todas las instancias RDS.
         self.security_group = ec2.SecurityGroup(
@@ -48,33 +53,51 @@ class DatabaseStack(Stack):
 
         self.instances: dict[str, rds.DatabaseInstance] = {}
 
-        for service in MICROSERVICES:
-            logical_id = service.replace("-", "").capitalize()
-            db_user = f"sward_{service.replace('-', '_')}"
+        _common = dict(
+            engine=rds.DatabaseInstanceEngine.postgres(
+                version=rds.PostgresEngineVersion.VER_15
+            ),
+            instance_type=ec2.InstanceType.of(
+                ec2.InstanceClass.T3, ec2.InstanceSize.MICRO
+            ),
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
+            ),
+            security_groups=[self.security_group],
+            removal_policy=RemovalPolicy.DESTROY,
+            deletion_protection=False,
+        )
+
+        if is_dev:
+            # 1 instancia compartida — todos los servicios conectan a database "sward".
             instance = rds.DatabaseInstance(
                 self,
-                f"Db{logical_id}",
-                engine=rds.DatabaseInstanceEngine.postgres(
-                    version=rds.PostgresEngineVersion.VER_15
-                ),
-                instance_type=ec2.InstanceType.of(
-                    ec2.InstanceClass.T3, ec2.InstanceSize.MICRO
-                ),
-                vpc=vpc,
-                vpc_subnets=ec2.SubnetSelection(
-                    subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
-                ),
-                security_groups=[self.security_group],
-                # Credencial generada en Secrets Manager (usuario + clave).
+                "DbShared",
+                **_common,
                 credentials=rds.Credentials.from_generated_secret(
-                    db_user,
-                    secret_name=f"sward/rds/{service}",
+                    "sward_admin",
+                    secret_name="sward/rds/shared",
                 ),
-                database_name=f"sward_{service.replace('-', '_')}",
-                removal_policy=RemovalPolicy.DESTROY,
-                deletion_protection=False,
+                database_name="sward",
             )
-            self.instances[service] = instance
+            for service in MICROSERVICES:
+                self.instances[service] = instance
+        else:
+            # 1 instancia por microservicio (aislamiento prod).
+            for service in MICROSERVICES:
+                logical_id = service.replace("-", "").capitalize()
+                instance = rds.DatabaseInstance(
+                    self,
+                    f"Db{logical_id}",
+                    **_common,
+                    credentials=rds.Credentials.from_generated_secret(
+                        f"sward_{service.replace('-', '_')}",
+                        secret_name=f"sward/rds/{service}",
+                    ),
+                    database_name=f"sward_{service.replace('-', '_')}",
+                )
+                self.instances[service] = instance
 
         # Nota: el ingress (PostgreSQL desde el SG de ECS) lo abre ServicesStack
         # sobre ``self.security_group`` para evitar una dependencia circular
