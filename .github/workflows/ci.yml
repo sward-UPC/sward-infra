@@ -42,8 +42,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: CDK Synth (validar stacks)
+      - name: CDK Synth modo dev (default)
         run: cdk synth
+
+      - name: CDK Synth modo prod (-c prod=true)
+        run: cdk synth -c prod=true
 
       - name: CDK Diff (preview de cambios vs AWS)
         run: cdk diff --all 2>&1 || true

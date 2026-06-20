@@ -6,7 +6,7 @@ on:
       confirmacion:
         description: >
           ADVERTENCIA: Esta acción destruye TODA la infraestructura de forma IRREVERSIBLE.
-          Se eliminarán: ECS, RDS, Lambdas, Redis, ALB, NAT Gateway, VPC y todos los datos.
+          Se eliminarán: ECS, RDS, Lambdas, Redis, ALB, NAT Instance, VPC y todos los datos.
           Escribe DESTRUIR para confirmar.
         required: true
         type: string
@@ -106,7 +106,7 @@ jobs:
           echo ""
           echo "Todos los stacks CDK han sido eliminados."
           echo "Recursos destruidos: ECS, RDS, Lambdas, Redis,"
-          echo "ALB, NAT Gateway, VPC, EventBridge, SQS y más."
+          echo "ALB, NAT Instance, VPC, EventBridge, SQS y más."
           echo ""
           echo "Ejecutado por: ${{ github.actor }}"
           echo "Fecha:         $(date -u '+%Y-%m-%d %H:%M:%S UTC')"

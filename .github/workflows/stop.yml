@@ -31,6 +31,7 @@ jobs:
             "cursos-recursos"
             "recomendacion"
             "xai"
+            "redis"
           )
 
           echo "=== Apagando servicios ECS en cluster '$CLUSTER' ==="
@@ -118,6 +119,7 @@ jobs:
           echo "  • cursos-recursos"
           echo "  • recomendacion"
           echo "  • xai"
+          echo "  • redis"
           echo ""
           echo "RDS — instancias detenidas (prefijo 'sward'):"
           aws rds describe-db-instances \
