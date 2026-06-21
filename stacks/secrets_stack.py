@@ -83,6 +83,26 @@ class SecretsStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
+        # YouTube Data API v3 key para ms-recomendacion (adjunta un video real al
+        # material generado). Best-effort: si queda con el placeholder, el material
+        # se genera sin el recurso de video. Rellenar manualmente tras el deploy:
+        #   aws secretsmanager put-secret-value \
+        #     --secret-id sward/youtube-api-key \
+        #     --secret-string '{"youtube_api_key":"<API_KEY>"}'
+        self.youtube_api_key = secrets.Secret(
+            self,
+            "YoutubeApiKey",
+            secret_name="sward/youtube-api-key",
+            description="YouTube Data API v3 key para el material generado (rellenar manualmente: youtube_api_key)",
+            generate_secret_string=secrets.SecretStringGenerator(
+                generate_string_key="youtube_api_key",
+                secret_string_template="{}",
+                password_length=40,
+                exclude_punctuation=True,
+            ),
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         # Contraseña del usuario administrador inicial (ms-usuarios seed).
         # Rellenar manualmente en Secrets Manager tras el primer deploy:
         #   aws secretsmanager put-secret-value \

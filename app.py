@@ -50,6 +50,7 @@ services = ServicesStack(
     service_keys=secrets.service_keys,
     moodle_token=secrets.moodle_token,
     admin_seed_secret=secrets.admin_seed_secret,
+    youtube_api_key_secret=secrets.youtube_api_key,
     models_bucket=storage.models_bucket,
     is_dev=is_dev,
     env=env,
