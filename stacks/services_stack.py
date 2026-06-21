@@ -327,6 +327,20 @@ class ServicesStack(Stack):
             if name == "recomendacion" and models_bucket is not None:
                 models_bucket.grant_read(task_def.task_role)
 
+            # Bedrock para el material generado por LLM (Fase 4): usa el IAM del
+            # task role, sin API key. El modelo Claude debe estar habilitado en
+            # Bedrock (Model access) para la región.
+            if name == "recomendacion":
+                task_def.task_role.add_to_principal_policy(
+                    iam.PolicyStatement(
+                        actions=[
+                            "bedrock:InvokeModel",
+                            "bedrock:InvokeModelWithResponseStream",
+                        ],
+                        resources=["*"],
+                    )
+                )
+
             # ---- Secretos (Secrets Manager) ----
             secret_env: dict[str, ecs.Secret] = {}
             cred = (db_credentials or {}).get(name)
@@ -364,22 +378,6 @@ class ServicesStack(Stack):
                     admin_seed_secret, "admin_seed_password"
                 )
 
-            # Clave de Anthropic para el material generado por LLM (Fase 4).
-            # Opcional y NO bloqueante: solo se inyecta si se pasa el contexto y el
-            # secret existe. Activar con:
-            #   cdk deploy -c anthropic_secret_name=sward/anthropic-api-key
-            # (secret JSON con la clave en el campo "api_key").
-            if name == "recomendacion":
-                anthropic_secret_name = self.node.try_get_context(
-                    "anthropic_secret_name"
-                )
-                if anthropic_secret_name:
-                    anthropic_secret = secretsmanager.Secret.from_secret_name_v2(
-                        self, "AnthropicKey", anthropic_secret_name
-                    )
-                    secret_env["ANTHROPIC_API_KEY"] = ecs.Secret.from_secrets_manager(
-                        anthropic_secret, "api_key"
-                    )
 
             # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
             # El container la recibe como AUTHORIZED_<CALLER>_KEY en texto plano
