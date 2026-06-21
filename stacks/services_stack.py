@@ -104,6 +104,7 @@ class ServicesStack(Stack):
         service_keys: dict | None = None,
         moodle_token: secretsmanager.ISecret | None = None,
         admin_seed_secret: secretsmanager.ISecret | None = None,
+        youtube_api_key_secret: secretsmanager.ISecret | None = None,
         event_bus_name: str = "sward-event-bus",
         models_bucket: s3.IBucket | None = None,
         is_dev: bool = False,
@@ -376,6 +377,13 @@ class ServicesStack(Stack):
             if name == "usuarios" and admin_seed_secret is not None:
                 secret_env["ADMIN_SEED_PASSWORD"] = ecs.Secret.from_secrets_manager(
                     admin_seed_secret, "admin_seed_password"
+                )
+            # YouTube Data API key para el material generado (ms-recomendacion).
+            # Best-effort: si el secret tiene el placeholder, el adapter no adjunta
+            # video pero el resto del material se genera igual.
+            if name == "recomendacion" and youtube_api_key_secret is not None:
+                secret_env["YOUTUBE_API_KEY"] = ecs.Secret.from_secrets_manager(
+                    youtube_api_key_secret, "youtube_api_key"
                 )
 
 
