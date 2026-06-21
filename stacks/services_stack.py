@@ -364,6 +364,23 @@ class ServicesStack(Stack):
                     admin_seed_secret, "admin_seed_password"
                 )
 
+            # Clave de Anthropic para el material generado por LLM (Fase 4).
+            # Opcional y NO bloqueante: solo se inyecta si se pasa el contexto y el
+            # secret existe. Activar con:
+            #   cdk deploy -c anthropic_secret_name=sward/anthropic-api-key
+            # (secret JSON con la clave en el campo "api_key").
+            if name == "recomendacion":
+                anthropic_secret_name = self.node.try_get_context(
+                    "anthropic_secret_name"
+                )
+                if anthropic_secret_name:
+                    anthropic_secret = secretsmanager.Secret.from_secret_name_v2(
+                        self, "AnthropicKey", anthropic_secret_name
+                    )
+                    secret_env["ANTHROPIC_API_KEY"] = ecs.Secret.from_secrets_manager(
+                        anthropic_secret, "api_key"
+                    )
+
             # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
             # El container la recibe como AUTHORIZED_<CALLER>_KEY en texto plano
             # (ECS resuelve el secreto antes de arrancar el container).
