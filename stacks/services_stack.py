@@ -386,7 +386,6 @@ class ServicesStack(Stack):
                     youtube_api_key_secret, "youtube_api_key"
                 )
 
-
             # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
             # El container la recibe como AUTHORIZED_<CALLER>_KEY en texto plano
             # (ECS resuelve el secreto antes de arrancar el container).
