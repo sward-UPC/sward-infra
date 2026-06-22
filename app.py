@@ -67,6 +67,7 @@ lambdas = LambdasStack(
     # Nombre literal del bucket (definido en StorageStack) para evitar un token
     # cruzado entre stacks en la notificación S3 -> lambda-recursos.
     recursos_bucket_name="sward-recursos-educativos",
+    is_dev=is_dev,
     env=env,
 )
 

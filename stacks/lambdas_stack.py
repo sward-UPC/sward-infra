@@ -47,6 +47,7 @@ class LambdasStack(Stack):
         db_security_group: ec2.ISecurityGroup | None = None,
         ecs_security_group: ec2.ISecurityGroup | None = None,
         recursos_bucket_name: str | None = None,
+        is_dev: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -230,7 +231,10 @@ class LambdasStack(Stack):
             return {
                 "DATABASE_HOST": inst.db_instance_endpoint_address,
                 "DATABASE_PORT": inst.db_instance_endpoint_port,
-                "DATABASE_NAME": f"sward_{service.replace('-', '_')}",
+                # En dev hay 1 RDS compartida con una sola BD "sward" (igual que ECS).
+                "DATABASE_NAME": "sward"
+                if is_dev
+                else f"sward_{service.replace('-', '_')}",
             }
 
         def _grant_db_secret(fn: lambda_.DockerImageFunction, service: str) -> None:
@@ -288,7 +292,8 @@ class LambdasStack(Stack):
                 trazabilidad_inst.db_instance_endpoint_port,
             )
             fn_alertas.add_environment(
-                "TRAZABILIDAD_DATABASE_NAME", "sward_trazabilidad"
+                "TRAZABILIDAD_DATABASE_NAME",
+                "sward" if is_dev else "sward_trazabilidad",
             )
         if xai_inst is not None:
             fn_alertas.add_environment(
@@ -297,7 +302,9 @@ class LambdasStack(Stack):
             fn_alertas.add_environment(
                 "XAI_DATABASE_PORT", xai_inst.db_instance_endpoint_port
             )
-            fn_alertas.add_environment("XAI_DATABASE_NAME", "sward_xai")
+            fn_alertas.add_environment(
+                "XAI_DATABASE_NAME", "sward" if is_dev else "sward_xai"
+            )
         trazabilidad_cred = db_credentials.get("trazabilidad")
         xai_cred = db_credentials.get("xai")
         if trazabilidad_cred is not None:
@@ -309,6 +316,8 @@ class LambdasStack(Stack):
             xai_cred.grant_read(fn_alertas)
             fn_alertas.add_environment("XAI_DB_SECRET_ARN", xai_cred.secret_arn)
         _grant_ecr_pull(fn_alertas, _repo_alertas)
+        # Publica AlertaCreada para que lambda-notificaciones avise al docente.
+        self.event_bus.grant_put_events_to(fn_alertas)
         self.functions["alertas"] = fn_alertas
 
         # 3) lambda-moodle-sync <- schedule cada 15 min.
@@ -379,6 +388,24 @@ class LambdasStack(Stack):
             )
             _grant_ecr_pull(fn_notif, _repo_notif)
             _grant_db_secret(fn_notif, "usuarios")
+            # 2ª BD: cursos_recursos (para resolver el docente de un curso en las
+            # alertas de riesgo). En dev es la misma RDS/BD "sward".
+            cursos_inst = db_instances.get("cursos-recursos")
+            cursos_cred = db_credentials.get("cursos-recursos")
+            if cursos_inst is not None:
+                fn_notif.add_environment(
+                    "CURSOS_DATABASE_HOST", cursos_inst.db_instance_endpoint_address
+                )
+                fn_notif.add_environment(
+                    "CURSOS_DATABASE_PORT", cursos_inst.db_instance_endpoint_port
+                )
+                fn_notif.add_environment(
+                    "CURSOS_DATABASE_NAME",
+                    "sward" if is_dev else "sward_cursos_recursos",
+                )
+            if cursos_cred is not None:
+                cursos_cred.grant_read(fn_notif)
+                fn_notif.add_environment("CURSOS_DB_SECRET_ARN", cursos_cred.secret_arn)
             fn_notif.add_event_source(
                 lambda_events.SqsEventSource(self.notificaciones_queue, batch_size=10)
             )
@@ -437,6 +464,25 @@ class LambdasStack(Stack):
             event_pattern=events.EventPattern(
                 source=["sward-ms-usuarios"],
                 detail_type=["sward.usuarios.UsuarioRegistrado"],
+            ),
+            targets=[
+                targets.SqsQueue(
+                    self.notificaciones_queue,
+                    dead_letter_queue=self.notificaciones_dlq,
+                    message=events.RuleTargetInput.from_event_path("$.detail"),
+                )
+            ],
+        )
+
+        # AlertaCreada -> SQS -> lambda-notificaciones (avisa al docente del curso)
+        events.Rule(
+            self,
+            "RuleAlertaCreada",
+            rule_name="sward-alerta-creada",
+            event_bus=self.event_bus,
+            event_pattern=events.EventPattern(
+                source=["sward-lambda-alertas"],
+                detail_type=["sward.alertas.AlertaCreada"],
             ),
             targets=[
                 targets.SqsQueue(
