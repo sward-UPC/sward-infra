@@ -20,7 +20,7 @@ from constructs import Construct
 #   priority        -> prioridad de la regla del listener (única)
 SERVICES = {
     "usuarios": {
-        "paths": ["/auth*", "/users*", "/admin*"],
+        "paths": ["/auth*", "/users*", "/admin*", "/notifications*"],
         "priority": 10,
     },
     "integracion-lms": {
