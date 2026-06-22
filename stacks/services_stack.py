@@ -20,7 +20,7 @@ from constructs import Construct
 #   priority        -> prioridad de la regla del listener (única)
 SERVICES = {
     "usuarios": {
-        "paths": ["/auth*", "/users*", "/admin*"],
+        "paths": ["/auth*", "/users*", "/admin*", "/notifications*"],
         "priority": 10,
     },
     "integracion-lms": {
@@ -104,6 +104,7 @@ class ServicesStack(Stack):
         service_keys: dict | None = None,
         moodle_token: secretsmanager.ISecret | None = None,
         admin_seed_secret: secretsmanager.ISecret | None = None,
+        youtube_api_key_secret: secretsmanager.ISecret | None = None,
         event_bus_name: str = "sward-event-bus",
         models_bucket: s3.IBucket | None = None,
         is_dev: bool = False,
@@ -114,14 +115,16 @@ class ServicesStack(Stack):
         service_keys = service_keys or {}
 
         # --- Cluster + namespace de Cloud Map para service discovery interno ---
+        # NOTA: NO usamos enable_fargate_capacity_providers=True porque genera un
+        # custom resource de CDK que bloquea la eliminación del cluster en rollbacks.
+        # FARGATE y FARGATE_SPOT están disponibles en todos los clusters por defecto
+        # en AWS, así que capacity_provider_strategies en cada servicio funciona igual.
         self.cluster = ecs.Cluster(
             self,
             "SwardCluster",
             vpc=vpc,
             cluster_name="sward-cluster",
             container_insights_v2=ecs.ContainerInsights.ENABLED,
-            # enable_fargate_capacity_providers requerido para poder usar FARGATE_SPOT.
-            enable_fargate_capacity_providers=True,
         )
         self.namespace = self.cluster.add_default_cloud_map_namespace(
             name="sward.local",
@@ -214,7 +217,7 @@ class ServicesStack(Stack):
         redis_container.add_port_mappings(
             ecs.PortMapping(container_port=6379, protocol=ecs.Protocol.TCP)
         )
-        ecs.FargateService(
+        redis_service = ecs.FargateService(
             self,
             "ServiceRedis",
             cluster=self.cluster,
@@ -325,6 +328,20 @@ class ServicesStack(Stack):
             if name == "recomendacion" and models_bucket is not None:
                 models_bucket.grant_read(task_def.task_role)
 
+            # Bedrock para el material generado por LLM (Fase 4): usa el IAM del
+            # task role, sin API key. El modelo Claude debe estar habilitado en
+            # Bedrock (Model access) para la región.
+            if name == "recomendacion":
+                task_def.task_role.add_to_principal_policy(
+                    iam.PolicyStatement(
+                        actions=[
+                            "bedrock:InvokeModel",
+                            "bedrock:InvokeModelWithResponseStream",
+                        ],
+                        resources=["*"],
+                    )
+                )
+
             # ---- Secretos (Secrets Manager) ----
             secret_env: dict[str, ecs.Secret] = {}
             cred = (db_credentials or {}).get(name)
@@ -360,6 +377,13 @@ class ServicesStack(Stack):
             if name == "usuarios" and admin_seed_secret is not None:
                 secret_env["ADMIN_SEED_PASSWORD"] = ecs.Secret.from_secrets_manager(
                     admin_seed_secret, "admin_seed_password"
+                )
+            # YouTube Data API key para el material generado (ms-recomendacion).
+            # Best-effort: si el secret tiene el placeholder, el adapter no adjunta
+            # video pero el resto del material se genera igual.
+            if name == "recomendacion" and youtube_api_key_secret is not None:
+                secret_env["YOUTUBE_API_KEY"] = ecs.Secret.from_secrets_manager(
+                    youtube_api_key_secret, "youtube_api_key"
                 )
 
             # Inyecta la SERVICE_KEY de cada caller autorizado como ECS Secret.
@@ -422,6 +446,9 @@ class ServicesStack(Stack):
                     else None
                 ),
             )
+            # Redis debe existir antes que los microservicios intenten arrancar
+            # para que redis.sward.local resuelva vía Cloud Map desde el inicio.
+            service.node.add_dependency(redis_service)
             self.services[name] = service
 
             # ---- Target group + regla de path-based routing en el ALB ----

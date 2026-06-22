@@ -7,9 +7,12 @@ class NetworkingStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # NAT Instance t3.nano (~$3.50/mes) reemplaza NAT Gateway (~$32/mes).
+        # default_allowed_traffic=ALL es necesario: con OUTBOUND_ONLY el SG queda
+        # sin inbound rules y las subnets privadas no pueden rutear tráfico a través
+        # del NAT Instance (las tasks ECS no pueden alcanzar internet ni CloudWatch).
         nat_provider = ec2.NatProvider.instance_v2(
             instance_type=ec2.InstanceType("t3.nano"),
-            default_allowed_traffic=ec2.NatTrafficDirection.OUTBOUND_ONLY,
+            default_allowed_traffic=ec2.NatTrafficDirection.INBOUND_AND_OUTBOUND,
         )
 
         self.vpc = ec2.Vpc(
