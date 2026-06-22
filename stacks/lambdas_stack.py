@@ -428,6 +428,25 @@ class LambdasStack(Stack):
             ],
         )
 
+        # UsuarioRegistrado -> SQS -> lambda-notificaciones (avisa a los admins)
+        events.Rule(
+            self,
+            "RuleUsuarioRegistrado",
+            rule_name="sward-usuario-registrado",
+            event_bus=self.event_bus,
+            event_pattern=events.EventPattern(
+                source=["sward-ms-usuarios"],
+                detail_type=["sward.usuarios.UsuarioRegistrado"],
+            ),
+            targets=[
+                targets.SqsQueue(
+                    self.notificaciones_queue,
+                    dead_letter_queue=self.notificaciones_dlq,
+                    message=events.RuleTargetInput.from_event_path("$.detail"),
+                )
+            ],
+        )
+
         # RecomendacionGenerada -> lambda-alertas
         events.Rule(
             self,
