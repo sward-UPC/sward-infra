@@ -223,3 +223,6 @@ __marimo__/
 # AWS CDK
 cdk.out/
 .cdk.staging/
+
+# macOS
+.DS_Store
