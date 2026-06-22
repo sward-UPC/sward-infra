@@ -226,3 +226,6 @@ CLAUDE.md
 # AWS CDK
 cdk.out/
 .cdk.staging/
+
+# macOS
+.DS_Store
