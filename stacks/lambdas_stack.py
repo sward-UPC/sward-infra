@@ -118,6 +118,24 @@ class LambdasStack(Stack):
             ),
         )
 
+        # --- SQS con DLQ para la creación de notificaciones (event-driven) ---
+        self.notificaciones_dlq = sqs.Queue(
+            self,
+            "SwardNotificacionesDlq",
+            queue_name="sward-notificaciones-dlq",
+            retention_period=Duration.days(14),
+        )
+        self.notificaciones_queue = sqs.Queue(
+            self,
+            "SwardNotificacionesQueue",
+            queue_name="sward-notificaciones",
+            visibility_timeout=Duration.seconds(300),
+            dead_letter_queue=sqs.DeadLetterQueue(
+                max_receive_count=3,
+                queue=self.notificaciones_dlq,
+            ),
+        )
+
         common_env = {
             "ENVIRONMENT": "production",
             "EVENTBRIDGE_BUS_NAME": self.event_bus.event_bus_name,
@@ -341,6 +359,31 @@ class LambdasStack(Stack):
         _grant_db_secret(fn_recursos, "cursos-recursos")
         self.functions["recursos"] = fn_recursos
 
+        # 5) lambda-notificaciones <- SQS (alimentada por EventBridge). Escribe en
+        #    la BD de usuarios (tabla notificaciones), igual que alertas escribe en xai.
+        #    Se activa con el context flag `notif_lambda` SOLO cuando la imagen ya
+        #    está en ECR (1er deploy crea el repo ECR; luego se sube la imagen y se
+        #    re-deploya con -c notif_lambda=true para crear la función).
+        if self.node.try_get_context("notif_lambda"):
+            _code_notif, _repo_notif = _ecr_image("notificaciones")
+            fn_notif = lambda_.DockerImageFunction(
+                self,
+                "LambdaNotificaciones",
+                function_name="sward-lambda-notificaciones",
+                code=_code_notif,
+                timeout=Duration.seconds(60),
+                vpc=vpc,
+                vpc_subnets=vpc_subnets,
+                security_groups=[self.lambda_security_group],
+                environment={**common_env, **_db_env("usuarios")},
+            )
+            _grant_ecr_pull(fn_notif, _repo_notif)
+            _grant_db_secret(fn_notif, "usuarios")
+            fn_notif.add_event_source(
+                lambda_events.SqsEventSource(self.notificaciones_queue, batch_size=10)
+            )
+            self.functions["notificaciones"] = fn_notif
+
         # ----------------------- EventBridge rules -----------------------
         # IMPORTANTE: Source y DetailType deben coincidir exactamente con lo que
         # publica sward_shared.adapters.eventbridge:
@@ -361,6 +404,25 @@ class LambdasStack(Stack):
                 targets.SqsQueue(
                     self.interacciones_queue,
                     dead_letter_queue=self.interacciones_dlq,
+                    message=events.RuleTargetInput.from_event_path("$.detail"),
+                )
+            ],
+        )
+
+        # FeedbackRegistrado -> SQS -> lambda-notificaciones (retro docente→estudiante)
+        events.Rule(
+            self,
+            "RuleFeedbackRegistrado",
+            rule_name="sward-feedback-registrado",
+            event_bus=self.event_bus,
+            event_pattern=events.EventPattern(
+                source=["sward-ms-trazabilidad"],
+                detail_type=["sward.trazabilidad.FeedbackRegistrado"],
+            ),
+            targets=[
+                targets.SqsQueue(
+                    self.notificaciones_queue,
+                    dead_letter_queue=self.notificaciones_dlq,
                     message=events.RuleTargetInput.from_event_path("$.detail"),
                 )
             ],

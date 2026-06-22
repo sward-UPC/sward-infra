@@ -8,6 +8,7 @@ LAMBDAS = [
     "interacciones",
     "alertas",
     "recursos",
+    "notificaciones",
 ]
 
 MAX_IMAGE_COUNT = 10
