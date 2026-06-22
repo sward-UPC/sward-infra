@@ -455,6 +455,25 @@ class LambdasStack(Stack):
             ],
         )
 
+        # LogroDesbloqueado -> SQS -> lambda-notificaciones (felicita al alumno)
+        events.Rule(
+            self,
+            "RuleLogroDesbloqueado",
+            rule_name="sward-logro-desbloqueado",
+            event_bus=self.event_bus,
+            event_pattern=events.EventPattern(
+                source=["sward-ms-trazabilidad"],
+                detail_type=["sward.trazabilidad.LogroDesbloqueado"],
+            ),
+            targets=[
+                targets.SqsQueue(
+                    self.notificaciones_queue,
+                    dead_letter_queue=self.notificaciones_dlq,
+                    message=events.RuleTargetInput.from_event_path("$.detail"),
+                )
+            ],
+        )
+
         # UsuarioRegistrado -> SQS -> lambda-notificaciones (avisa a los admins)
         events.Rule(
             self,
