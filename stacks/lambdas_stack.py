@@ -327,7 +327,7 @@ class LambdasStack(Stack):
             "LambdaMoodleSync",
             function_name="sward-lambda-moodle-sync",
             code=_code_moodle,
-            timeout=Duration.seconds(60),
+            timeout=Duration.seconds(300),
             vpc=vpc,
             vpc_subnets=vpc_subnets,
             security_groups=[self.lambda_security_group],
