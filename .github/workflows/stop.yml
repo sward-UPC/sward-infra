@@ -6,7 +6,31 @@ on:
     - cron: "0 5 * * *"  # 00:00 hora Perú (UTC-5) todos los días
 
 jobs:
+  credenciales:
+    name: Comprobar credenciales de AWS
+    runs-on: ubuntu-latest
+    outputs:
+      hay: ${{ steps.revisar.outputs.hay }}
+    steps:
+      # Mientras la cuenta de AWS no esté configurada, el resto se omite en vez
+      # de fallar: un workflow programado que falla cada noche solo genera
+      # correos de error y acaba ignorándose.
+      - name: Revisar si hay credenciales cargadas
+        id: revisar
+        env:
+          CLAVE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -z "$CLAVE" ]; then
+            echo "No hay credenciales de AWS en los secretos del repositorio."
+            echo "Cárgalas en Settings -> Secrets and variables -> Actions."
+            echo "hay=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay=true" >> "$GITHUB_OUTPUT"
+          fi
+
   stop:
+    needs: credenciales
+    if: needs.credenciales.outputs.hay == 'true'
     name: Apagar ECS, RDS y Lambdas
     runs-on: ubuntu-latest
     permissions:
