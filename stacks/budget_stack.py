@@ -62,7 +62,9 @@ class BudgetStack(Stack):
             )
         ]
 
-        def aviso(umbral: float, tipo: str) -> budgets.CfnBudget.NotificationWithSubscribersProperty:
+        def aviso(
+            umbral: float, tipo: str
+        ) -> budgets.CfnBudget.NotificationWithSubscribersProperty:
             return budgets.CfnBudget.NotificationWithSubscribersProperty(
                 notification=budgets.CfnBudget.NotificationProperty(
                     comparison_operator="GREATER_THAN",
