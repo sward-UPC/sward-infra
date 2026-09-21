@@ -238,8 +238,34 @@ cdk diff --all
 **Requisitos:** Python 3.11 · Node.js 22 (para el CDK CLI) · AWS CDK v2
 (`npm install -g aws-cdk`) · AWS CLI configurado.
 
-**Cuenta/región por defecto:** `050451404093` / `us-east-1` (sobreescribibles con
-`-c account=...` / `-c region=...` o las env vars `CDK_DEFAULT_*`).
+**Cuenta:** no hay ninguna fijada en el código. Sale de las credenciales activas
+(`CDK_DEFAULT_ACCOUNT`) o de `-c account=...`; si no hay ninguna, el despliegue se
+detiene con un mensaje en vez de apuntar a una cuenta ajena. **Región por
+defecto:** `us-east-1` (`-c region=...` o `CDK_DEFAULT_REGION`).
+
+### Avisos de gasto
+
+El stack `SwardPresupuesto` crea dos presupuestos de AWS con avisos por correo al
+superar el **50 %** y el **80 %**, y una previsión al 100 %:
+
+| Presupuesto | Para qué sirve | Valor por defecto |
+|---|---|---|
+| Anual (`sward-creditos-anual`) | Consumo total contra los créditos disponibles | 100 USD |
+| Mensual (`sward-gasto-mensual`) | Detectar un mes que se disparó, por ejemplo si el apagado nocturno falla | 50 USD |
+
+Los créditos cuentan como gasto a propósito: si no, el aviso llegaría recién
+cuando se hubieran agotado y empezara a cobrarse la tarjeta.
+
+Los tres valores se cambian sin tocar el código:
+
+```bash
+cdk deploy SwardPresupuesto \
+  -c creditos=100 -c tope_mensual=50 -c correo_alertas=u201616054@upc.edu.pe
+```
+
+El correo se suscribe directamente en el presupuesto, así que no hay que
+confirmar ninguna suscripción. Los presupuestos son globales de la cuenta:
+se despliegan una vez y no dependen del resto de stacks.
 
 ---
 

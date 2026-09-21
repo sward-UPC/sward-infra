@@ -11,12 +11,23 @@ from stacks.storage_stack import StorageStack
 from stacks.services_stack import ServicesStack
 from stacks.lambdas_stack import LambdasStack
 from stacks.cloudfront_stack import CloudfrontStack
+from stacks.budget_stack import BudgetStack
 
 app = cdk.App()
 
+# La cuenta ya no se fija en el codigo: sale del contexto (-c account=...) o de
+# CDK_DEFAULT_ACCOUNT, que el CLI toma de las credenciales activas. Antes habia
+# aqui la cuenta del integrante anterior, de modo que un despliegue distraido
+# apuntaba a una cuenta ajena.
+cuenta = app.node.try_get_context("account") or os.environ.get("CDK_DEFAULT_ACCOUNT")
+if not cuenta:
+    raise SystemExit(
+        "Falta la cuenta de AWS. Ejecuta con credenciales activas "
+        "(aws configure / aws sso login) o pasa -c account=<id de tu cuenta>."
+    )
+
 env = cdk.Environment(
-    account=app.node.try_get_context("account")
-    or os.environ.get("CDK_DEFAULT_ACCOUNT", "050451404093"),
+    account=cuenta,
     region=app.node.try_get_context("region")
     or os.environ.get("CDK_DEFAULT_REGION", "us-east-1"),
 )
@@ -89,5 +100,18 @@ cloudfront_dist = CloudfrontStack(
     env=env,
 )
 cloudfront_dist.add_dependency(services)
+
+# Avisos de gasto. Los tres valores se pueden cambiar sin tocar el codigo:
+#   cdk deploy SwardPresupuesto -c creditos=100 -c tope_mensual=50 \
+#              -c correo_alertas=alguien@upc.edu.pe
+BudgetStack(
+    app,
+    "SwardPresupuesto",
+    correo_alertas=app.node.try_get_context("correo_alertas")
+    or "u201616054@upc.edu.pe",
+    creditos_usd=float(app.node.try_get_context("creditos") or 100),
+    tope_mensual_usd=float(app.node.try_get_context("tope_mensual") or 50),
+    env=env,
+)
 
 app.synth()
