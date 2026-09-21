@@ -291,7 +291,16 @@ superar el **50 %** y el **80 %**, y una previsión al 100 %:
 | Mensual (`sward-gasto-mensual`) | Detectar un mes que se disparó, por ejemplo si el apagado nocturno falla | 50 USD |
 
 Los créditos cuentan como gasto a propósito: si no, el aviso llegaría recién
-cuando se hubieran agotado y empezara a cobrarse la tarjeta.
+cuando se hubieran agotado. En el plan gratuito de AWS eso no genera un cargo,
+pero **corta el acceso a los servicios**: el sistema se apaga, esté donde esté la
+tesis en ese momento.
+
+**Cuánto duran 100 USD.** El modo dev cuesta unos 50 USD al mes si queda
+encendido las 24 horas, así que dos meses encendido agotan los créditos. Del 21
+de septiembre a la sustentación final del 5 de diciembre hay dos meses y medio:
+la infraestructura **no puede quedarse encendida todo el tiempo**. Encenderla con
+`start.yml` solo para sesiones, demostraciones y la sustentación, y dejar que
+`stop.yml` la apague cada noche.
 
 Los tres valores se cambian sin tocar el código:
 

@@ -5,8 +5,11 @@ from constructs import Construct
 class BudgetStack(Stack):
     """Avisos de gasto de la cuenta.
 
-    La cuenta funciona con créditos de estudiante, que se agotan y no se
-    renuevan. AWS no permite avisar sobre un porcentaje del saldo de créditos, de
+    La cuenta está en el plan gratuito de AWS: 100 USD de créditos que no se
+    renuevan y, al agotarse, **no se cobra nada, se corta el acceso a los
+    servicios**. Para una tesis eso es peor que un cargo: el sistema se apaga en
+    medio de una sesión o de la sustentación. AWS no permite avisar sobre un
+    porcentaje del saldo de créditos, de
     modo que se fija el monto disponible como presupuesto y se avisa al superar
     el 50 % y el 80 % de esa cifra. Dos presupuestos, con propósitos distintos:
 
@@ -84,8 +87,8 @@ class BudgetStack(Stack):
                 time_unit=unidad_de_tiempo,
                 budget_limit=budgets.CfnBudget.SpendProperty(amount=monto, unit="USD"),
                 # Los créditos cuentan como gasto: de lo contrario el aviso
-                # llegaría recién cuando se hubieran agotado y empezara a
-                # cobrarse la tarjeta, que es justo lo que se quiere evitar.
+                # llegaría recién cuando se hubieran agotado, que en el plan
+                # gratuito es cuando la cuenta pierde acceso a los servicios.
                 cost_types=budgets.CfnBudget.CostTypesProperty(
                     include_credit=True,
                     include_discount=True,
