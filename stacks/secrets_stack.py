@@ -23,6 +23,8 @@ class SecretsStack(Stack):
       * ``jwt_secret``       — SECRET_KEY compartida para firmar/validar JWT.
       * ``service_keys``     — clave SERVICE_KEY por microservicio (s2s auth).
       * ``moodle_token``     — token de API de Moodle (ms-integracion-lms).
+      * ``smtp``             — correo saliente de ms-usuarios (recuperación de
+                               contraseña).
 
     Las credenciales de RDS las gestiona ``DatabaseStack`` vía
     ``rds.Credentials.from_generated_secret`` (un secret por instancia), por lo
@@ -118,6 +120,29 @@ class SecretsStack(Stack):
                 secret_string_template="{}",
                 password_length=24,
                 exclude_punctuation=False,
+            ),
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+        # Correo saliente de ms-usuarios: envía los códigos de recuperación de
+        # contraseña. Se crea SIN configurar a propósito: mientras
+        # ``email_backend`` esté vacío, la recuperación responde «no disponible»
+        # y el resto del servicio funciona igual. Rellenar tras el deploy con
+        # una cuenta de Gmail y una contraseña de aplicación (ver README):
+        #   aws secretsmanager put-secret-value --secret-id sward/smtp \
+        #     --secret-string '{"email_backend":"smtp","smtp_user":"cuenta@gmail.com",
+        #                       "smtp_password":"<contraseña de aplicación>",
+        #                       "email_remitente":"SWARD <cuenta@gmail.com>"}'
+        self.smtp = secrets.Secret(
+            self,
+            "Smtp",
+            secret_name="sward/smtp",
+            description="Correo saliente de ms-usuarios (rellenar manualmente: email_backend, smtp_user, smtp_password)",
+            generate_secret_string=secrets.SecretStringGenerator(
+                secret_string_template='{"email_backend": "", "smtp_user": "", "email_remitente": ""}',
+                generate_string_key="smtp_password",
+                password_length=32,
+                exclude_punctuation=True,
             ),
             removal_policy=RemovalPolicy.DESTROY,
         )

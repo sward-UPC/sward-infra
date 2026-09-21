@@ -105,6 +105,9 @@ class ServicesStack(Stack):
         moodle_token: secretsmanager.ISecret | None = None,
         admin_seed_secret: secretsmanager.ISecret | None = None,
         youtube_api_key_secret: secretsmanager.ISecret | None = None,
+        smtp_secret: secretsmanager.ISecret | None = None,
+        smtp_host: str = "smtp.gmail.com",
+        smtp_port: int = 587,
         event_bus_name: str = "sward-event-bus",
         models_bucket: s3.IBucket | None = None,
         is_dev: bool = False,
@@ -301,6 +304,11 @@ class ServicesStack(Stack):
             # nombre y moodle_user_id vienen de Moodle). Sin esto cae al mock.
             if name == "usuarios":
                 environment["USE_MOCK_LMS"] = "false"
+                # Servidor de correo saliente. Lo sensible —usuario, contraseña y
+                # si el correo está activo— va en el secreto sward/smtp.
+                environment["SMTP_HOST"] = smtp_host
+                environment["SMTP_PORT"] = str(smtp_port)
+                environment["SMTP_STARTTLS"] = "true"
 
             # Modelo SAKT que descarga ms-recomendacion (cambiable sin rebuild de
             # imagen). Apunta al modelo entrenado sobre conceptos de Moodle.
@@ -378,6 +386,19 @@ class ServicesStack(Stack):
                 secret_env["ADMIN_SEED_PASSWORD"] = ecs.Secret.from_secrets_manager(
                     admin_seed_secret, "admin_seed_password"
                 )
+            # Correo saliente de ms-usuarios. Mientras EMAIL_BACKEND llegue vacío
+            # (el secreto recién creado), la recuperación de contraseña responde
+            # «no disponible» sin afectar al login ni al registro.
+            if name == "usuarios" and smtp_secret is not None:
+                for env_key, campo in (
+                    ("EMAIL_BACKEND", "email_backend"),
+                    ("SMTP_USER", "smtp_user"),
+                    ("SMTP_PASSWORD", "smtp_password"),
+                    ("EMAIL_REMITENTE", "email_remitente"),
+                ):
+                    secret_env[env_key] = ecs.Secret.from_secrets_manager(
+                        smtp_secret, campo
+                    )
             # YouTube Data API key para el material generado (ms-recomendacion).
             # Best-effort: si el secret tiene el placeholder, el adapter no adjunta
             # video pero el resto del material se genera igual.

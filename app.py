@@ -62,6 +62,11 @@ services = ServicesStack(
     moodle_token=secrets.moodle_token,
     admin_seed_secret=secrets.admin_seed_secret,
     youtube_api_key_secret=secrets.youtube_api_key,
+    # Correo saliente de ms-usuarios. Gmail por defecto; otro proveedor con
+    # -c smtp_host=... -c smtp_port=...
+    smtp_secret=secrets.smtp,
+    smtp_host=app.node.try_get_context("smtp_host") or "smtp.gmail.com",
+    smtp_port=int(app.node.try_get_context("smtp_port") or 587),
     models_bucket=storage.models_bucket,
     is_dev=is_dev,
     env=env,

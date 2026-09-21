@@ -209,6 +209,45 @@ forma irreversible existe `.github/workflows/destroy.yml` (requiere escribir
 
 ---
 
+## Correo saliente (recuperación de contraseña)
+
+ms-usuarios envía por correo los códigos de recuperación de contraseña. El
+secreto `sward/smtp` se crea **sin configurar**: mientras esté así, la
+recuperación responde «no disponible» y el login y el registro funcionan igual.
+
+**Proveedor: Gmail con contraseña de aplicación.** Amazon SES no sirve de
+entrada: una cuenta nueva empieza en *sandbox* y solo puede enviar a direcciones
+verificadas una por una, y salir de ahí requiere una solicitud que AWS revisa.
+Gmail envía a cualquiera, hasta unos 500 correos al día, y la misma cuenta sirve
+para el correo saliente de Moodle.
+
+1. Usar una cuenta de Gmail **del proyecto**, no personal: aparecerá como
+   remitente y conviene que la pueda administrar más de una persona.
+2. Activar la verificación en dos pasos en esa cuenta.
+3. Crear una contraseña de aplicación en
+   <https://myaccount.google.com/apppasswords>. Son 16 letras; se muestra una
+   sola vez.
+4. Tras el `cdk deploy`, guardar la configuración en el secreto:
+
+   ```bash
+   aws secretsmanager put-secret-value --secret-id sward/smtp --secret-string \
+     '{"email_backend":"smtp","smtp_user":"<cuenta>@gmail.com","smtp_password":"<contraseña de aplicación>","email_remitente":"SWARD <<cuenta>@gmail.com>"}'
+   ```
+
+5. Reiniciar ms-usuarios para que lea el secreto (ECS lo resuelve al arrancar):
+
+   ```bash
+   aws ecs update-service --cluster sward-cluster --service usuarios --force-new-deployment
+   ```
+
+6. Probar desde la pantalla de inicio: *¿Olvidaste tu contraseña?* con una
+   cuenta propia.
+
+El servidor (`smtp.gmail.com`, puerto 587 con STARTTLS) va como variable de
+entorno; otro proveedor se configura con `-c smtp_host=... -c smtp_port=...`.
+
+---
+
 ## Secrets generados e inyección a ECS
 
 `SecretsStack` crea estos secretos en **AWS Secrets Manager** (todos con
