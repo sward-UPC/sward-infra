@@ -96,6 +96,43 @@ que publica `sward_shared`.
 
 ---
 
+## Puesta en marcha en una cuenta nueva
+
+Esta infraestructura se desplegó originalmente en la cuenta de AWS del integrante
+anterior. Para levantarla en otra, en este orden:
+
+1. **Credenciales.** En *Settings → Secrets and variables → Actions*, cargar
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` y `AWS_REGION` de la cuenta
+   nueva. Mientras no estén, el CI corre solo el lint, y `stop.yml` y `start.yml`
+   se omiten en vez de fallar.
+
+   > Mejor que las llaves: un rol con **OIDC**. GitHub pide un permiso temporal a
+   > AWS en cada corrida y no queda ninguna credencial guardada en el
+   > repositorio. Requiere crear el proveedor de identidad y el rol en la cuenta,
+   > y cambiar el paso `configure-aws-credentials` por `role-to-assume`.
+
+2. **Bootstrap.** Una vez por cuenta y región:
+
+   ```bash
+   cdk bootstrap aws://<id de la cuenta>/us-east-1
+   ```
+
+3. **Primero el presupuesto.** Antes que nada que pueda gastar:
+
+   ```bash
+   cdk deploy SwardPresupuesto -c creditos=<saldo real> -c tope_mensual=50
+   ```
+
+4. **Después el resto**, con `cdk deploy --all` o por la rama `deploy`.
+
+5. **Comprobar el apagado nocturno.** `stop.yml` corre a las 00:00 de Perú. Si el
+   repositorio estuvo inactivo mucho tiempo, GitHub desactiva las tareas
+   programadas: se reactivan desde la pestaña *Actions*. Conviene lanzarlo una vez
+   a mano y ver que termina en verde, porque es lo que hace que los créditos
+   duren: el modo dev cuesta unos 50 USD al mes si se queda encendido.
+
+---
+
 ## Cómo desplegar
 
 ### Vía GitHub Actions (recomendado)
