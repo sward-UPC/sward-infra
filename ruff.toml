@@ -1,0 +1,7 @@
+# Fijado el 20/09/2026. Sin esto, ruff aplica su conjunto de reglas por defecto,
+# que se amplio en versiones posteriores y hacia fallar el CI sobre codigo que ya
+# estaba en main. Estas son las reglas que revisaba cuando el CI estaba verde.
+line-length = 88
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

@@ -7,7 +7,54 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias Python
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint con ruff
+        run: ruff check stacks/ app.py
+
+      - name: Verificar formato con ruff
+        run: ruff format --check stacks/ app.py
+
+  credenciales:
+    name: Comprobar credenciales de AWS
+    runs-on: ubuntu-latest
+    outputs:
+      hay: ${{ steps.revisar.outputs.hay }}
+    steps:
+      # `cdk synth` necesita credenciales para resolver las consultas a la cuenta
+      # (zonas de disponibilidad, por ejemplo). Sin ellas, la comprobacion se
+      # omite en vez de fallar: asi el lint sigue dando señal mientras la cuenta
+      # de AWS se termina de configurar.
+      - name: Revisar si hay credenciales cargadas
+        id: revisar
+        env:
+          CLAVE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -z "$CLAVE" ]; then
+            echo "No hay credenciales de AWS en los secretos del repositorio."
+            echo "Cárgalas en Settings -> Secrets and variables -> Actions."
+            echo "hay=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay=true" >> "$GITHUB_OUTPUT"
+          fi
+
   cdk-synth:
+    name: CDK Synth
+    needs: [lint, credenciales]
+    if: needs.credenciales.outputs.hay == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,12 +75,6 @@ jobs:
 
       - name: Instalar dependencias Python
         run: pip install -r requirements.txt -r requirements-dev.txt
-
-      - name: Lint con ruff
-        run: ruff check stacks/ app.py
-
-      - name: Verificar formato con ruff
-        run: ruff format --check stacks/ app.py
 
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
