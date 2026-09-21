@@ -12,6 +12,7 @@ from stacks.services_stack import ServicesStack
 from stacks.lambdas_stack import LambdasStack
 from stacks.cloudfront_stack import CloudfrontStack
 from stacks.budget_stack import BudgetStack
+from stacks.moodle_stack import MoodleStack
 
 app = cdk.App()
 
@@ -118,5 +119,19 @@ BudgetStack(
     tope_mensual_usd=float(app.node.try_get_context("tope_mensual") or 50),
     env=env,
 )
+
+# Moodle en internet para los participantes externos del OE4. Queda fuera del
+# apagado nocturno. Se despliega aparte:  cdk deploy SwardMoodle
+moodle = MoodleStack(
+    app,
+    "SwardMoodle",
+    vpc=networking.vpc,
+    correo_admin=app.node.try_get_context("correo_admin_moodle")
+    or "u201616054@upc.edu.pe",
+    tipo_instancia=app.node.try_get_context("moodle_instancia") or "t3.small",
+    env=env,
+)
+# Usa los secretos sward/smtp y sward/moodle-token, que crea SwardSecrets.
+moodle.add_dependency(secrets)
 
 app.synth()

@@ -19,6 +19,7 @@ event-driven y la distribución CloudFront que expone el API por HTTPS.
 - [Cómo desplegar](#cómo-desplegar)
 - [Modo dev vs prod (`is_dev`)](#modo-dev-vs-prod-is_dev)
 - [Encender y apagar](#encender-y-apagar-startyml--stopyml)
+- [Moodle para los participantes](#moodle-para-los-participantes)
 - [Secrets generados e inyección a ECS](#secrets-generados-e-inyección-a-ecs)
 - [Setup local](#setup-local)
 - [Documentación relacionada](#documentación-relacionada)
@@ -27,7 +28,7 @@ event-driven y la distribución CloudFront que expone el API por HTTPS.
 
 ## Qué despliega
 
-La app (`app.py`) sintetiza **8 stacks** con dependencias explícitas. Cada stack
+La app (`app.py`) sintetiza **10 stacks** con dependencias explícitas. Cada stack
 tiene una responsabilidad acotada:
 
 | Stack | ID CDK | Rol |
@@ -40,6 +41,8 @@ tiene una responsabilidad acotada:
 | `ServicesStack` | `SwardServices` | ECS Cluster + **6 Fargate services** (uno por microservicio) + ALB con path-based routing + Cloud Map (`sward.local`) para descubrimiento s2s interno. Incluye además un servicio **Redis** en Fargate (`redis.sward.local:6379`) que reemplaza a ElastiCache para ahorrar costo. |
 | `LambdasStack` | `SwardLambdas` | EventBus `sward-event-bus` + Lambdas de imagen + reglas EventBridge + colas SQS con DLQ. Es el corazón event-driven del sistema. |
 | `CloudfrontStack` | `SwardCloudfront` | Distribución CloudFront delante del ALB: aporta **HTTPS sin dominio propio** y resuelve CORS con dos CloudFront Functions (reescribe `/api/v1/*` → `/*` y maneja preflights en el edge). Exporta la URL pública como output `SwardApiUrl`. |
+| `BudgetStack` | `SwardPresupuesto` | Avisos de gasto al 50 % y 80 % de los créditos y del tope mensual. Se despliega primero. Ver [Avisos de gasto](#avisos-de-gasto). |
+| `MoodleStack` | `SwardMoodle` | Moodle en internet para los participantes externos del OE4: una EC2 con Docker detrás de CloudFront, **fuera del apagado nocturno**. Ver [Moodle para los participantes](#moodle-para-los-participantes). |
 
 ### Orden de dependencias
 
@@ -245,6 +248,86 @@ para el correo saliente de Moodle.
 
 El servidor (`smtp.gmail.com`, puerto 587 con STARTTLS) va como variable de
 entorno; otro proveedor se configura con `-c smtp_host=... -c smtp_port=...`.
+
+---
+
+## Moodle para los participantes
+
+Los participantes del OE4 no están en ningún Moodle nuestro: resuelven los
+quizzes de la fase 1 en este, y `ms-integracion-lms` sincroniza desde aquí. Es
+un stack aparte, `SwardMoodle`, que **no se apaga de noche**: los estudiantes
+entran a cualquier hora.
+
+```
+estudiante ──HTTPS──► CloudFront (*.cloudfront.net) ──HTTP──► EC2 :80 ──► Moodle + MariaDB (Docker)
+```
+
+Una sola instancia `t3.small` con la misma imagen de Moodle y MariaDB que el
+entorno de pruebas (`erseco/alpine-moodle:v4.5.11`). Cuesta unos **21 USD al
+mes** (instancia, 30 GB de disco e IP pública); CloudFront entra en la capa
+gratuita. ECS con EFS y RDS costaría varias veces más para 31 usuarios.
+
+**Qué hace sola la instancia al arrancar** (registro en `/var/log/sward-moodle.log`):
+
+1. Instala Docker y levanta Moodle con la URL de CloudFront, en español.
+2. Toma la contraseña del administrador de `sward/moodle-admin` (generada) y el
+   correo saliente de `sward/smtp`, el mismo secreto que usa ms-usuarios.
+3. Habilita los web services y guarda la URL y el token en `sward/moodle-token`,
+   de donde los lee ms-integracion-lms.
+4. Programa un respaldo diario (base y `moodledata`) a un bucket S3 que se
+   **conserva aunque se destruya el stack**; cada respaldo dura 30 días.
+
+**Seguridad.** El puerto 80 solo acepta tráfico de CloudFront (la lista de
+prefijos administrada por AWS, que se consulta al desplegar). No hay SSH: se
+entra con Session Manager. Las contraseñas de la base se generan en la instancia
+y no salen de ella.
+
+### Desplegar
+
+Con las credenciales activas y **después de `SwardPresupuesto`**:
+
+```bash
+cdk deploy SwardMoodle
+```
+
+Despliega también `SwardNetworking` y `SwardSecrets` si no existen. La primera
+instalación de Moodle tarda unos diez minutos después de que el stack termina.
+La URL sale en el output `MoodleUrl`.
+
+**Antes de crear las cuentas de los participantes**, el correo del proyecto
+tiene que estar en `sward/smtp` (ver [Correo saliente](#correo-saliente-recuperación-de-contraseña)):
+sin él, Moodle no puede enviarles su contraseña. Si se configuró después del
+despliegue, aplicarlo así:
+
+```bash
+aws ssm send-command --instance-ids <MoodleInstancia> \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["/opt/moodle/actualizar.sh"]'
+```
+
+### Entrar como administrador
+
+Usuario `admin`; la contraseña está en el secreto:
+
+```bash
+aws secretsmanager get-secret-value --secret-id sward/moodle-admin \
+  --query SecretString --output text
+```
+
+### Mantenimiento
+
+| Para | Comando en la instancia (Session Manager) |
+|---|---|
+| Ver cómo va la instalación | `tail -f /var/log/sward-moodle.log` |
+| Aplicar un cambio de correo | `/opt/moodle/actualizar.sh` |
+| Regenerar el token de SWARD | `/opt/moodle/token.sh` |
+| Respaldo inmediato | `/opt/moodle/respaldo.sh` |
+
+Después de regenerar el token, reiniciar ms-integracion-lms para que lo lea:
+`aws ecs update-service --cluster sward-cluster --service integracion-lms --force-new-deployment`.
+
+**Antes de un `cdk destroy SwardMoodle`, un respaldo inmediato**: el disco de la
+instancia se borra con ella. El bucket de respaldos queda.
 
 ---
 
