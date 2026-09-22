@@ -19,7 +19,7 @@ IMAGEN_MOODLE = "erseco/alpine-moodle:v4.5.11"
 
 # Commit de sward-moodle-test del que se toma seed/setup_webservices.php. Fijo,
 # para que un cambio en ese repositorio no altere una instancia ya desplegada.
-SHA_SEED = "9b991549851808d9dc26b76ae7a2597ce18efa61"
+SHA_SEED = "240ff190613fd3364725e08185ec49c44e6e112e"
 
 # Guion de arranque de la instancia. Los @@VALORES@@ se reemplazan al sintetizar.
 _ARRANQUE = r"""#!/bin/bash
@@ -198,15 +198,18 @@ for i in $(seq 1 90); do
   sleep 20
 done
 
-# Los participantes entran también con su correo: su usuario es la parte local
-# del correo (crear_participantes.py) y la mayoría escribe el correo completo.
-docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=authloginviaemail --set=1
-# Sin botón de invitado: los cursos no admiten invitados y el botón confunde.
-docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=guestloginbutton --set=0
-# Hora de Lima en fechas y plazos (la imagen trae Europe/London).
-docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=timezone --set=America/Lima
-# El correo de cada participante no lo ven sus compañeros (por defecto, sí).
-docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=defaultpreference_maildisplay --set=0
+# 6b. El sitio para los participantes: tema SWARD (solo «Mis cursos» en la barra)
+#     y los ajustes de seed/validacion/configurar_sitio.php (entrada con correo,
+#     hora de Lima, correos ocultos, sin correos por cada quiz...). Mismo código
+#     que el Moodle local, en el commit fijado de sward-moodle-test.
+mkdir -p /opt/moodle/repo
+curl -fsSL "https://codeload.github.com/sward-UPC/sward-moodle-test/tar.gz/@@SHA_SEED@@" \
+  | tar -xz --strip-components=1 -C /opt/moodle/repo
+docker cp /opt/moodle/repo/moodle/theme/sward sward-moodle-app:/var/www/html/theme/sward
+docker exec -u 0 sward-moodle-app sh -c 'chown -R "$(stat -c %u:%g /var/www/html/theme/boost)" /var/www/html/theme/sward'
+docker exec sward-moodle-app php /var/www/html/admin/cli/upgrade.php --non-interactive
+docker cp /opt/moodle/repo/seed/validacion/configurar_sitio.php sward-moodle-app:/tmp/configurar_sitio.php
+docker exec sward-moodle-app php /tmp/configurar_sitio.php
 
 # 7. Web services para SWARD: el token queda en Secrets Manager, de donde lo
 #    lee ms-integracion-lms junto con la URL. token.sh se puede volver a correr.
