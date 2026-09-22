@@ -1,4 +1,5 @@
 from aws_cdk import (
+    custom_resources as cr,
     Stack,
     Duration,
     RemovalPolicy,
@@ -46,6 +47,13 @@ SERVICES = {
 }
 
 CONTAINER_PORT = 8000
+
+# (CPU, memoria MiB) por servicio; el resto usa 256/512. ms-recomendacion carga
+# torch y el SAKT (unos 670 MB en local) y hace la verificación de fidelidad en
+# cada explicación: con 0.25 vCPU no llega a los 500 ms del RF-004-05.
+TAMANOS: dict[str, tuple[int, int]] = {
+    "recomendacion": (1024, 2048),
+}
 
 # Grafo de callers s2s: quién está autorizado a llamar a cada servicio.
 # CDK inyecta la SERVICE_KEY de cada caller como ECS Secret en el receptor,
@@ -184,13 +192,48 @@ class ServicesStack(Stack):
             "HttpListener",
             port=80,
             protocol=elbv2.ApplicationProtocol.HTTP,
-            open=True,
+            open=False,
             default_action=elbv2.ListenerAction.fixed_response(
                 404,
                 content_type="application/json",
                 message_body='{"error":"ruta no encontrada"}',
             ),
         )
+
+        # Solo CloudFront llega al ALB. El id de la lista de prefijos cambia por
+        # región: se consulta al desplegar (igual que en MoodleStack).
+        prefijos = cr.AwsCustomResource(
+            self,
+            "PrefijosCloudFrontAlb",
+            on_create=cr.AwsSdkCall(
+                service="EC2",
+                action="describeManagedPrefixLists",
+                parameters={
+                    "Filters": [
+                        {
+                            "Name": "prefix-list-name",
+                            "Values": ["com.amazonaws.global.cloudfront.origin-facing"],
+                        }
+                    ]
+                },
+                physical_resource_id=cr.PhysicalResourceId.of(
+                    "cloudfront-origin-facing-alb"
+                ),
+                output_paths=["PrefixLists.0.PrefixListId"],
+            ),
+            policy=cr.AwsCustomResourcePolicy.from_sdk_calls(
+                resources=cr.AwsCustomResourcePolicy.ANY_RESOURCE
+            ),
+            install_latest_aws_sdk=False,
+        )
+        for grupo in self.alb.connections.security_groups:
+            grupo.add_ingress_rule(
+                ec2.Peer.prefix_list(
+                    prefijos.get_response_field("PrefixLists.0.PrefixListId")
+                ),
+                ec2.Port.tcp(80),
+                "Solo CloudFront",
+            )
 
         # Log group compartido (un stream prefix por servicio).
         log_group = logs.LogGroup(
@@ -220,6 +263,9 @@ class ServicesStack(Stack):
         redis_container.add_port_mappings(
             ecs.PortMapping(container_port=6379, protocol=ecs.Protocol.TCP)
         )
+        # Fargate Spot en dev, salvo -c spot=false (sesiones con participantes).
+        usar_spot = is_dev and self.node.try_get_context("spot") != "false"
+
         redis_service = ecs.FargateService(
             self,
             "ServiceRedis",
@@ -228,6 +274,7 @@ class ServicesStack(Stack):
             desired_count=1,
             service_name="redis",
             min_healthy_percent=0,
+            circuit_breaker=ecs.DeploymentCircuitBreaker(rollback=True),
             security_groups=[self.service_security_group],
             vpc_subnets=ec2.SubnetSelection(
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
@@ -244,7 +291,7 @@ class ServicesStack(Stack):
                         weight=1,
                     )
                 ]
-                if is_dev
+                if usar_spot
                 else None
             ),
         )
@@ -254,11 +301,12 @@ class ServicesStack(Stack):
         for name, cfg in SERVICES.items():
             logical_id = name.replace("-", " ").title().replace(" ", "")
 
+            cpu, memoria = TAMANOS.get(name, (256, 512))
             task_def = ecs.FargateTaskDefinition(
                 self,
                 f"Task{logical_id}",
-                cpu=256,
-                memory_limit_mib=512,
+                cpu=cpu,
+                memory_limit_mib=memoria,
                 family=f"sward-{name}",
             )
 
@@ -314,6 +362,8 @@ class ServicesStack(Stack):
             # imagen). Apunta al modelo entrenado sobre conceptos de Moodle.
             if name == "recomendacion":
                 environment["SAKT_MODEL_S3_KEY"] = "sakt/moodle/model.pth"
+                if models_bucket is not None:
+                    environment["AWS_S3_MODEL_BUCKET"] = models_bucket.bucket_name
 
             # Todos los servicios con event publisher necesitan PutEvents.
             if name in (
@@ -463,7 +513,7 @@ class ServicesStack(Stack):
                             weight=1,
                         )
                     ]
-                    if is_dev
+                    if usar_spot
                     else None
                 ),
             )

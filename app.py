@@ -7,7 +7,7 @@ from stacks.networking_stack import NetworkingStack
 from stacks.ecr_stack import EcrStack
 from stacks.secrets_stack import SecretsStack
 from stacks.database_stack import DatabaseStack
-from stacks.storage_stack import StorageStack
+from stacks.storage_stack import StorageStack, nombre_bucket_recursos
 from stacks.services_stack import ServicesStack
 from stacks.lambdas_stack import LambdasStack
 from stacks.cloudfront_stack import CloudfrontStack
@@ -83,7 +83,7 @@ lambdas = LambdasStack(
     ecs_security_group=services.service_security_group,
     # Nombre literal del bucket (definido en StorageStack) para evitar un token
     # cruzado entre stacks en la notificación S3 -> lambda-recursos.
-    recursos_bucket_name="sward-recursos-educativos",
+    recursos_bucket_name=nombre_bucket_recursos(cuenta),
     is_dev=is_dev,
     env=env,
 )

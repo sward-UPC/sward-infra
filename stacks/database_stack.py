@@ -65,6 +65,7 @@ class DatabaseStack(Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
             ),
             security_groups=[self.security_group],
+            storage_encrypted=True,
             removal_policy=RemovalPolicy.DESTROY,
             deletion_protection=False,
         )
