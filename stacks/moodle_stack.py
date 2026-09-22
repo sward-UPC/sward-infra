@@ -203,6 +203,10 @@ done
 docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=authloginviaemail --set=1
 # Sin botón de invitado: los cursos no admiten invitados y el botón confunde.
 docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=guestloginbutton --set=0
+# Hora de Lima en fechas y plazos (la imagen trae Europe/London).
+docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=timezone --set=America/Lima
+# El correo de cada participante no lo ven sus compañeros (por defecto, sí).
+docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=defaultpreference_maildisplay --set=0
 
 # 7. Web services para SWARD: el token queda en Secrets Manager, de donde lo
 #    lee ms-integracion-lms junto con la URL. token.sh se puede volver a correr.
