@@ -201,6 +201,8 @@ done
 # Los participantes entran también con su correo: su usuario es la parte local
 # del correo (crear_participantes.py) y la mayoría escribe el correo completo.
 docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=authloginviaemail --set=1
+# Sin botón de invitado: los cursos no admiten invitados y el botón confunde.
+docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=guestloginbutton --set=0
 
 # 7. Web services para SWARD: el token queda en Secrets Manager, de donde lo
 #    lee ms-integracion-lms junto con la URL. token.sh se puede volver a correr.
