@@ -198,6 +198,10 @@ for i in $(seq 1 90); do
   sleep 20
 done
 
+# Los participantes entran también con su correo: su usuario es la parte local
+# del correo (crear_participantes.py) y la mayoría escribe el correo completo.
+docker exec sward-moodle-app php /var/www/html/admin/cli/cfg.php --name=authloginviaemail --set=1
+
 # 7. Web services para SWARD: el token queda en Secrets Manager, de donde lo
 #    lee ms-integracion-lms junto con la URL. token.sh se puede volver a correr.
 cat > /opt/moodle/token.sh <<'EOF'
