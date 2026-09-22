@@ -7,12 +7,12 @@ class NetworkingStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # NAT Instance t3.nano (~$3.50/mes) reemplaza NAT Gateway (~$32/mes).
-        # default_allowed_traffic=ALL es necesario: con OUTBOUND_ONLY el SG queda
-        # sin inbound rules y las subnets privadas no pueden rutear tráfico a través
-        # del NAT Instance (las tasks ECS no pueden alcanzar internet ni CloudWatch).
+        # OUTBOUND_ONLY + ingreso desde el CIDR de la VPC (abajo): las subnets
+        # privadas rutean a través de la NAT sin abrirla a internet. Antes se usaba
+        # INBOUND_AND_OUTBOUND, que dejaba todos los puertos abiertos a 0.0.0.0/0.
         nat_provider = ec2.NatProvider.instance_v2(
             instance_type=ec2.InstanceType("t3.nano"),
-            default_allowed_traffic=ec2.NatTrafficDirection.INBOUND_AND_OUTBOUND,
+            default_allowed_traffic=ec2.NatTrafficDirection.OUTBOUND_ONLY,
         )
 
         self.vpc = ec2.Vpc(
@@ -38,4 +38,9 @@ class NetworkingStack(Stack):
                     cidr_mask=24,
                 ),
             ],
+        )
+        nat_provider.connections.allow_from(
+            ec2.Peer.ipv4(self.vpc.vpc_cidr_block),
+            ec2.Port.all_traffic(),
+            "Trafico saliente de las subnets privadas",
         )

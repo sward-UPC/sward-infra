@@ -36,7 +36,7 @@ tiene una responsabilidad acotada:
 | `NetworkingStack` | `SwardNetworking` | VPC de 2 AZ con subnets pública / privada-con-egress / aislada. Usa un **NAT Instance** `t3.nano` (en lugar de NAT Gateway) para abaratar el egress de las subnets privadas. |
 | `EcrStack` | `SwardEcr` | Repositorios ECR `sward/lambda-<nombre>` para las **imágenes de las Lambdas** (Lambda no admite registries externos). Lifecycle policy: conserva las últimas 10 imágenes. Los microservicios ECS **no** usan ECR: tiran sus imágenes de GHCR (público). |
 | `SecretsStack` | `SwardSecrets` | Secretos en **AWS Secrets Manager**: `SECRET_KEY` (JWT), una `SERVICE_KEY` por microservicio (auth service-to-service), token de Moodle, YouTube API key, y password del admin inicial. Ver [Secrets generados](#secrets-generados-e-inyección-a-ecs). |
-| `StorageStack` | `SwardStorage` | Buckets S3 `sward-recursos-educativos` (material) y `sward-models` (modelos SAKT). Versionados, sin acceso público, `RemovalPolicy.RETAIN`. |
+| `StorageStack` | `SwardStorage` | Buckets S3 `sward-recursos-educativos-<cuenta>` (material) y `sward-models-<cuenta>` (modelos SAKT); los nombres sin sufijo pertenecen a otra cuenta. Versionados, sin acceso público, `RemovalPolicy.RETAIN`. |
 | `DatabaseStack` | `SwardDatabase` | RDS PostgreSQL 15 (`t3.micro`) en subnets aisladas. En **dev** una sola instancia compartida; en **prod** una por microservicio (6 en total). Credenciales autogeneradas en Secrets Manager. |
 | `ServicesStack` | `SwardServices` | ECS Cluster + **6 Fargate services** (uno por microservicio) + ALB con path-based routing + Cloud Map (`sward.local`) para descubrimiento s2s interno. Incluye además un servicio **Redis** en Fargate (`redis.sward.local:6379`) que reemplaza a ElastiCache para ahorrar costo. |
 | `LambdasStack` | `SwardLambdas` | EventBus `sward-event-bus` + Lambdas de imagen + reglas EventBridge + colas SQS con DLQ. Es el corazón event-driven del sistema. |
@@ -90,7 +90,7 @@ Las Lambdas se despliegan como **imágenes de contenedor** desde ECR.
 | `sward-lambda-interacciones` | SQS (alimentada por EventBridge) | Normaliza `InteraccionRegistrada` hacia la BD de trazabilidad. |
 | `sward-lambda-alertas` | EventBridge (`RecomendacionGenerada`, `RiesgoActualizado`) | Evalúa riesgo académico y publica `AlertaCreada`. |
 | `sward-lambda-moodle-sync` | Schedule (cada 15 min) | Sincroniza datos desde Moodle vía `ms-integracion-lms`. |
-| `sward-lambda-recursos` | S3 `ObjectCreated` en `sward-recursos-educativos` | Actualiza la metadata del recurso en la BD de cursos-recursos. |
+| `sward-lambda-recursos` | S3 `ObjectCreated` en `sward-recursos-educativos-<cuenta>` | Actualiza la metadata del recurso en la BD de cursos-recursos. |
 | `sward-lambda-notificaciones` | SQS (feedback, logros, registro, alertas) | Crea notificaciones para estudiantes / docentes / admins. **Opcional**: solo se crea con el context flag `notif_lambda=true` (ya activado en `cdk.json`) y requiere que la imagen exista en ECR. |
 
 Las reglas EventBridge usan `Source` = nombre del servicio y `DetailType` = tipo de
@@ -194,6 +194,10 @@ En dev cada microservicio crea sus propias tablas sobre la BD compartida (vía
 ---
 
 ## Encender y apagar (`start.yml` / `stop.yml`)
+
+> Para las pruebas del OE4 (encender solo con autorización, costos por hora,
+> orden de despliegue y cómo dejar todo apagado) ver
+> [`docs/ENCENDER_Y_APAGAR.md`](docs/ENCENDER_Y_APAGAR.md).
 
 Para no pagar 24/7, la infra se **enciende y apaga** con dos workflows
 (`workflow_dispatch` manual). El apagado además corre en **schedule diario** a las
