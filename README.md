@@ -126,7 +126,8 @@ anterior. Para levantarla en otra, en este orden:
    cdk deploy SwardPresupuesto -c creditos=<saldo real> -c tope_mensual=50
    ```
 
-4. **Después el resto**, con `cdk deploy --all` o por la rama `deploy`.
+4. **Después el resto**, con `cdk deploy --all` o lanzando *CDK Deploy* a mano
+   desde la pestaña *Actions*.
 
 5. **Comprobar el apagado nocturno.** `stop.yml` corre a las 00:00 de Perú. Si el
    repositorio estuvo inactivo mucho tiempo, GitHub desactiva las tareas
@@ -140,8 +141,10 @@ anterior. Para levantarla en otra, en este orden:
 
 ### Vía GitHub Actions (recomendado)
 
-El despliegue se dispara con un **push a la rama `deploy`** (o manualmente con
-*workflow_dispatch*), definido en `.github/workflows/deploy.yml`:
+El despliegue se lanza **solo a mano**, con *workflow_dispatch* desde la pestaña
+*Actions*, en `.github/workflows/deploy.yml`. Hasta el 23 de septiembre de 2026
+bastaba un push a la rama `deploy`; se quitó ese disparador porque esa rama se
+quedaba atrás sin que nadie lo notara y encender AWS sin querer gasta créditos:
 
 1. **CDK Diff (preview)** — `cdk synth` + `cdk diff --all` para ver qué cambiaría.
 2. **⏸ Aprobación manual** — GitHub Environment `production` pausa el pipeline.

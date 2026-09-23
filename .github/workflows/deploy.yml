@@ -1,9 +1,13 @@
 name: CDK Deploy
 
+# Solo a mano. Antes bastaba un push a la rama `deploy` para que corriera
+# `cdk deploy --all --require-approval never`, es decir, para levantar toda la
+# nube sin que nadie confirmara nada. Esa rama llevaba 22 commits de atraso —le
+# faltaban las correcciones del 22 de septiembre— y con los créditos de por
+# medio, encender AWS sin querer cuesta dinero y tiempo. Desde el 23 de
+# septiembre el despliegue se lanza desde la pestaña Actions, eligiendo el modo,
+# o desde la línea de comandos con el procedimiento del README.
 on:
-  push:
-    branches:
-      - deploy
   workflow_dispatch:
     inputs:
       modo:

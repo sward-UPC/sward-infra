@@ -110,7 +110,7 @@ flowchart TD
 |-----------|--------|
 | Cambié código de un microservicio | `git push origin deploy` en ese repo |
 | Cambié código de una lambda | `git push origin deploy` en ese repo |
-| Nueva BD, nuevo servicio, nueva regla de red | `git push origin deploy` en `sward-infra` → aprobar |
+| Nueva BD, nuevo servicio, nueva regla de red | Subir a `main` en `sward-infra` y lanzar *CDK Deploy* a mano desde *Actions* → aprobar |
 | Quiero ver el estado de la infra sin cambiar nada | `cdk diff --all` local |
 | Activar deploy automático a AWS | Cambiar secret `SEND_TO_AWS` a `true` en org GitHub |
 
