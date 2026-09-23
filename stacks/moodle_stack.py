@@ -19,7 +19,7 @@ IMAGEN_MOODLE = "erseco/alpine-moodle:v4.5.11"
 
 # Commit de sward-moodle-test del que se toma seed/setup_webservices.php. Fijo,
 # para que un cambio en ese repositorio no altere una instancia ya desplegada.
-SHA_SEED = "f048fcee18dd35adb205607f99292dc67b0be6ce"
+SHA_SEED = "022c93025c1b49a282df3598b4e4556ca34c17b4"
 
 # Guion de arranque de la instancia. Los @@VALORES@@ se reemplazan al sintetizar.
 _ARRANQUE = r"""#!/bin/bash
