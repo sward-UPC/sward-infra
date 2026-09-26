@@ -35,30 +35,43 @@ echo "→ Autenticando en ECR ($ECR_REGISTRY)..."
 aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
+# Se construye y se sube con buildx, en un solo paso y con
+# `oci-mediatypes=false`. Es obligatorio: Docker moderno (29.x) escribe por
+# defecto un índice OCI —`application/vnd.oci.image.index.v1+json`— y Lambda
+# solo acepta el manifiesto Docker v2. Con `docker build` + `docker push`, el
+# push funciona y el rechazo aparece mucho después, al crear la función:
+#   «The image manifest, config or layer media type ... is not supported»
+# (pasó el 26 de septiembre de 2026 y dejó SwardLambdas en ROLLBACK).
+#
+# `--output type=image,push=true` necesita el driver docker-container, así que
+# se crea un constructor propio. Ese driver no ve las imágenes locales del
+# demonio, por eso ya no hay atajo por `sward-lambda-<nombre>:local`: cada
+# imagen sale de su repositorio o de GHCR, que es además más reproducible.
+if ! docker buildx inspect sward-push >/dev/null 2>&1; then
+  echo "→ Creando el constructor sward-push (driver docker-container)..."
+  docker buildx create --name sward-push --driver docker-container --bootstrap >/dev/null
+fi
+
 for LAMBDA in "${LAMBDAS[@]}"; do
-  LOCAL_IMAGE="sward-lambda-${LAMBDA}:local"
   REPO_DIR="${AQUI}/../sward-lambda-${LAMBDA}"
   GHCR_IMAGE="ghcr.io/sward-upc/sward-lambda-${LAMBDA}:latest"
   ECR_IMAGE="${ECR_REGISTRY}/sward/lambda-${LAMBDA}:latest"
+  SALIDA="type=image,name=${ECR_IMAGE},oci-mediatypes=false,push=true"
 
   echo ""
-  if docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
-    echo "→ [$LAMBDA] Imagen local $LOCAL_IMAGE"
-    ORIGEN="$LOCAL_IMAGE"
-  elif [[ -f "$REPO_DIR/Dockerfile" ]]; then
-    echo "→ [$LAMBDA] Construyendo desde $REPO_DIR..."
-    # --provenance=false: Lambda rechaza los índices OCI con atestaciones.
-    docker build --provenance=false -t "$LOCAL_IMAGE" "$REPO_DIR"
-    ORIGEN="$LOCAL_IMAGE"
+  if [[ -f "$REPO_DIR/Dockerfile" ]]; then
+    echo "→ [$LAMBDA] Construyendo y subiendo desde $REPO_DIR..."
+    docker buildx --builder sward-push build \
+      --provenance=false --sbom=false --platform linux/amd64 \
+      --output "$SALIDA" "$REPO_DIR"
   else
-    echo "→ [$LAMBDA] Pull desde GHCR..."
-    docker pull "$GHCR_IMAGE"
-    ORIGEN="$GHCR_IMAGE"
+    echo "→ [$LAMBDA] Reempaquetando desde GHCR..."
+    # Una sola capa FROM: no cambia el contenido, solo reescribe el manifiesto
+    # en el formato que Lambda entiende.
+    echo "FROM ${GHCR_IMAGE}" | docker buildx --builder sward-push build \
+      --provenance=false --sbom=false --platform linux/amd64 \
+      --output "$SALIDA" -f - .
   fi
-
-  docker tag "$ORIGEN" "$ECR_IMAGE"
-  echo "→ [$LAMBDA] Push a ECR..."
-  docker push "$ECR_IMAGE"
   echo "✓ [$LAMBDA] Listo: $ECR_IMAGE"
 done
 
