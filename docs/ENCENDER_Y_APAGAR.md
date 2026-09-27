@@ -4,6 +4,33 @@
 renovación) solo se gastan en las pruebas con participantes y en los ensayos
 previos. Antes de cada encendido se anuncia el costo por hora.
 
+## Atajo: mientras los stacks sigan en pie
+
+Si el apagado anterior fue **detener y no destruir** —que es lo normal entre una
+sesión y la siguiente, porque hay datos— no hay nada que desplegar:
+
+```bash
+./encender.sh     # NAT, base y Moodle, y después los servicios
+./apagar.sh       # al revés, y la NAT al final
+```
+
+Los dos descubren solos los identificadores, así que siguen valiendo si algún
+stack se vuelve a crear. `encender.sh` no sube los servicios si la base no llega
+a `available`: quedarían reintentando contra una base apagada y gastando igual.
+
+**Cuánto ahorra apagar de noche, medido y no estimado.** El 26 de septiembre, con
+el sistema desplegándose y probándose casi todo el día, el gasto fue de **1,19
+USD**. El suelo con todo detenido es de **1,2 a 1,4 USD al día** —el balanceador,
+los discos, las IP fijas y los once secretos se cobran encendido o apagado—. O
+sea que la mayor parte de la factura no depende de si se usa. Apagar de noche
+sigue valiendo la pena, porque quita Fargate, la base y las dos EC2, pero el
+ahorro es de céntimos por hora, no de dólares. Bajar de ese suelo solo se
+consigue destruyendo los stacks, y eso se lleva los datos.
+
+El resto de este documento es el despliegue completo, para cuando sí se destruyó.
+
+---
+
 Todos los comandos se corren desde `sward-infra`, con el usuario IAM
 `sward-deploy` configurado (`aws sts get-caller-identity`) y:
 
@@ -90,10 +117,10 @@ aws secretsmanager delete-secret --secret-id sward/rds/shared --force-delete-wit
 (Y los once de `sward/` si también se destruye `SwardSecrets`.) El bucket de
 respaldos de Moodle se conserva (RETAIN): borrarlo a mano si solo tuvo el ensayo.
 
-**Entre la fase 1 y la fase 2** (hay datos: no destruir). Detener sin borrar:
-Moodle (`aws ec2 stop-instances`), la base (`aws rds stop-db-instance`, se
-reinicia sola a los 7 días), los servicios (`desired-count 0`) y la NAT. Siguen
-cobrando el ALB, los discos y las IP: ~1,4 USD por día.
+**Entre la fase 1 y la fase 2, y cada noche** (hay datos: no destruir). Eso es lo
+que hace `./apagar.sh`: los servicios a cero, luego Moodle y la base
+(`aws rds stop-db-instance`, se reinicia sola a los 7 días) y la NAT al final.
+Siguen cobrando el ALB, los discos, las IP y los secretos: ~1,2 a 1,4 USD por día.
 
 **Después de la fase 2:** respaldar la base (`pg_dump` a S3) y Moodle (el
 respaldo diario ya va a S3), y destruir como en un ensayo.
