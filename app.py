@@ -68,6 +68,10 @@ services = ServicesStack(
     smtp_secret=secrets.smtp,
     smtp_host=app.node.try_get_context("smtp_host") or "smtp.gmail.com",
     smtp_port=int(app.node.try_get_context("smtp_port") or 587),
+    # Las dos direcciones que el correo de bienvenida le da al participante:
+    #   cdk deploy SwardServices -c aula_url=https://... -c app_url=https://...
+    aula_virtual_url=app.node.try_get_context("aula_url") or "",
+    sward_app_url=app.node.try_get_context("app_url") or "",
     models_bucket=storage.models_bucket,
     is_dev=is_dev,
     env=env,

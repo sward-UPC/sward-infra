@@ -116,6 +116,10 @@ class ServicesStack(Stack):
         smtp_secret: secretsmanager.ISecret | None = None,
         smtp_host: str = "smtp.gmail.com",
         smtp_port: int = 587,
+        # Direcciones publicas para el correo de bienvenida. Cambian con cada
+        # despliegue, asi que llegan por contexto y no escritas en el codigo.
+        aula_virtual_url: str = "",
+        sward_app_url: str = "",
         event_bus_name: str = "sward-event-bus",
         models_bucket: s3.IBucket | None = None,
         is_dev: bool = False,
@@ -357,6 +361,13 @@ class ServicesStack(Stack):
                 environment["SMTP_HOST"] = smtp_host
                 environment["SMTP_PORT"] = str(smtp_port)
                 environment["SMTP_STARTTLS"] = "true"
+                # Direcciones que el correo de bienvenida le da al participante.
+                # Van por contexto porque cambian con cada despliegue:
+                #   cdk deploy SwardServices -c aula_url=... -c app_url=...
+                # Vacías, el correo sale igual pero sin enlaces, que es mejor que
+                # mandar a nadie a una dirección que ya no existe.
+                environment["AULA_VIRTUAL_URL"] = aula_virtual_url
+                environment["SWARD_APP_URL"] = sward_app_url
 
             # Modelo SAKT que descarga ms-recomendacion (cambiable sin rebuild de
             # imagen). Apunta al modelo entrenado sobre conceptos de Moodle.
