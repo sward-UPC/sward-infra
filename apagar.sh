@@ -3,18 +3,20 @@
 #
 #     ./apagar.sh
 #
-# Esto es lo que va entre la fase 1 y la fase 2, y cada noche mientras se este
-# usando. NO es el apagado de despues de un ensayo: para borrarlo todo esta el
-# `cdk destroy` de docs/ENCENDER_Y_APAGAR.md.
+# Esto es para DESPUES del estudio, o para un hueco de varios dias. NO es el
+# apagado de despues de un ensayo: para borrarlo todo esta el `cdk destroy` de
+# docs/ENCENDER_Y_APAGAR.md.
+#
+# **Mientras el estudio este en marcha no se apaga de noche.** Los participantes
+# dan por hecho que es una web normal, y ademas casi no se ahorra: un dia entero
+# con todo encendido costo 1,20 USD y la parte que se cobra aunque este detenido
+# -balanceador, IP, discos, secretos, la zona privada de DNS- son unos 0,95. Una
+# noche entera apagado ahorra unos 0,25. El razonamiento completo, con la tabla,
+# esta en docs/ENCENDER_Y_APAGAR.md.
 #
 # Lo que deja de cobrarse: las siete tareas de Fargate, la base y las dos
-# instancias EC2.
-#
-# Lo que sigue cobrandose, y por eso el suelo son unos 1,2 a 1,4 USD al dia: el
-# balanceador, los discos, las IP fijas y los once secretos. Se cobran encendido
-# o apagado, asi que apagar de noche ahorra menos de lo que parece. El unico modo
-# de bajar de ese suelo es destruir los stacks, y eso se lleva los datos y cuesta
-# una hora de volver a levantar.
+# instancias EC2. Bajar del suelo de 0,95 solo se consigue destruyendo los stacks,
+# y eso se lleva los datos y cuesta una hora de volver a levantar.
 #
 # El orden es el inverso del encendido: primero los servicios, que son quienes
 # hablan con la base, y la NAT al final, que es de quien dependen los demas para

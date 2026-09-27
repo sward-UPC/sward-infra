@@ -18,14 +18,36 @@ Los dos descubren solos los identificadores, así que siguen valiendo si algún
 stack se vuelve a crear. `encender.sh` no sube los servicios si la base no llega
 a `available`: quedarían reintentando contra una base apagada y gastando igual.
 
-**Cuánto ahorra apagar de noche, medido y no estimado.** El 26 de septiembre, con
-el sistema desplegándose y probándose casi todo el día, el gasto fue de **1,19
-USD**. El suelo con todo detenido es de **1,2 a 1,4 USD al día** —el balanceador,
-los discos, las IP fijas y los once secretos se cobran encendido o apagado—. O
-sea que la mayor parte de la factura no depende de si se usa. Apagar de noche
-sigue valiendo la pena, porque quita Fargate, la base y las dos EC2, pero el
-ahorro es de céntimos por hora, no de dólares. Bajar de ese suelo solo se
-consigue destruyendo los stacks, y eso se lleva los datos.
+## Durante el estudio no se apaga de noche
+
+Decidido el 27 de septiembre, con la factura real delante y no con la estimación.
+
+Los participantes y su profesor dan por hecho que SWARD es una web normal,
+disponible cuando entren. Apagarla de noche los dejaría fuera sin explicación, y
+lo que se ahorra no compensa:
+
+| | USD al día |
+|---|---|
+| Un día entero con **todo encendido** (26 de septiembre, desplegando y probando) | **1,20** |
+| La parte que se cobra **aunque esté detenido**: balanceador 0,29 · IP y red 0,26 · almacenamiento de la base 0,30 · secretos 0,10 | **~0,95** |
+| Lo que ahorra de verdad apagar una noche entera | **~0,25** |
+
+El balanceador, las IP fijas, los discos, los once secretos y la zona privada de
+DNS (`sward.local`, 0,50 al mes, la que usan los servicios para encontrarse) se
+cobran igual. Solo Fargate, la base y las dos EC2 dependen de estar encendido.
+
+**Con todo encendido son unos 1,2 a 1,5 USD al día**, así que los 120 USD de
+crédito dan para unos **ochenta días seguidos**. El estudio dura semanas. No hay
+razón para apagarlo mientras esté en marcha, y sí hay una para no hacerlo: que
+alguien entre y no encuentre nada.
+
+`apagar.sh` sigue siendo lo correcto **después** del estudio, o en un hueco de
+varios días. Para eso está. Bajar del suelo de 0,95 solo se consigue destruyendo
+los stacks, y eso se lleva los datos.
+
+**El aviso está puesto:** dos presupuestos con alertas al 50 % y al 80 % del gasto
+y una por previsión —`sward-creditos-anual` (100 USD) y `sward-gasto-mensual`
+(50 USD)—, así que si algo se desmadra llega el correo antes de quemar el crédito.
 
 El resto de este documento es el despliegue completo, para cuando sí se destruyó.
 
