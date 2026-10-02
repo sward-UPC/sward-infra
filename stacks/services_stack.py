@@ -377,12 +377,20 @@ class ServicesStack(Stack):
                     environment["AWS_S3_MODEL_BUCKET"] = models_bucket.bucket_name
 
             # Todos los servicios con event publisher necesitan PutEvents.
+            # «xai» faltaba en esta lista y publica ExplicacionGeneradaEvent al
+            # final de generar la explicacion: sin el permiso, boto3 lanzaba
+            # AccessDenied, la excepcion subia sin capturar y POST /xai/explain
+            # respondia 500. La explicacion ya estaba generada y guardada, pero
+            # la sesion se revertia con la excepcion, asi que se perdia: la tabla
+            # explanations estuvo en cero mientras los estudiantes usaban el
+            # sistema.
             if name in (
                 "integracion-lms",
                 "usuarios",
                 "trazabilidad",
                 "cursos-recursos",
                 "recomendacion",
+                "xai",
             ):
                 task_def.task_role.add_to_principal_policy(
                     iam.PolicyStatement(
